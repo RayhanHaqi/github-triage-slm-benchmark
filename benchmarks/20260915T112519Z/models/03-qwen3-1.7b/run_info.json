@@ -1,0 +1,82 @@
+{
+  "status": "success",
+  "display_name": "Qwen3-1.7B",
+  "checkpoint": "Qwen/Qwen3-1.7B",
+  "revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+  "model_kind": "language",
+  "dataset_sha256": {
+    "train": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+    "val": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+    "test": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025"
+  },
+  "cache_policy": "isolated per model; deleted after evaluation",
+  "weights_policy": "base cache, adapter, trainer checkpoints deleted after evaluation",
+  "compatibility_notes": "Reference recipe; official repo forced; thinking disabled; BF16.",
+  "started_at": "2026-09-15T11:28:08.040952+00:00",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "phases": {
+    "baseline": {
+      "exit_code": 0,
+      "wall_seconds": 60.17049956321716
+    },
+    "train": {
+      "exit_code": 0,
+      "wall_seconds": 831.6253755092621
+    },
+    "finetuned": {
+      "exit_code": 0,
+      "wall_seconds": 24.815964460372925
+    },
+    "comparison": {
+      "exit_code": 0,
+      "wall_seconds": 0.03142595291137695
+    }
+  },
+  "finished_at": "2026-09-15T13:03:17.651893+00:00",
+  "failure_stage": null,
+  "failure_exit_code": null,
+  "cleanup": {
+    "cache_bytes_deleted": 4080857141,
+    "run_weight_bytes_deleted": 319017228,
+    "base_cache_deleted": true,
+    "adapter_deleted": true,
+    "trainer_deleted": true,
+    "dataset_copies_deleted": true,
+    "short_tmp_deleted": true,
+    "gpu_compute_processes_after_cleanup": []
+  },
+  "attempts": [
+    {
+      "status": "failed",
+      "failure_stage": "train",
+      "failure_exit_code": 1,
+      "phases": {
+        "baseline": {
+          "exit_code": 0,
+          "wall_seconds": 60.17049956321716
+        },
+        "train": {
+          "exit_code": 1,
+          "wall_seconds": 24.10182285308838
+        }
+      },
+      "archived_at": "2026-09-15T12:49:00.986516+00:00",
+      "reason": "AF_UNIX path too long from overly long TMPDIR; retry uses short isolated TMPDIR."
+    }
+  ],
+  "retry_started_at": "2026-09-15T12:49:00.986526+00:00"
+}

@@ -1,0 +1,56 @@
+{
+  "phase": "baseline",
+  "checkpoint": "base",
+  "mode": "base",
+  "base_model": "Qwen/Qwen3-1.7B",
+  "adapter": null,
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/runs/20260915T093353Z/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.58,
+  "semantic_accuracy": 0.58,
+  "valid_output_rate": 1.0,
+  "strict_correct": 116,
+  "semantic_correct": 116,
+  "valid_predictions": 200,
+  "per_class_recall": {
+    "bug": 0.18,
+    "feature-request": 0.98
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 18,
+      "feature-request": 82,
+      "INVALID": 0
+    },
+    "feature-request": {
+      "bug": 2,
+      "feature-request": 98,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 20,
+    "feature-request": 180,
+    "INVALID": 0
+  },
+  "mean_input_tokens": 375.41,
+  "median_input_tokens": 230.0,
+  "total_generated_tokens": 580,
+  "output_tokens_per_second": 43.110317733193604,
+  "mean_latency_ms": 67.26927920011804,
+  "median_latency_ms": 54.90883148740977,
+  "issues_per_second": 14.865626804549517,
+  "total_generation_time_s": 13.453855840023607,
+  "peak_allocated_gb": 3.5021615028381348,
+  "peak_reserved_gb": 3.873046875
+}

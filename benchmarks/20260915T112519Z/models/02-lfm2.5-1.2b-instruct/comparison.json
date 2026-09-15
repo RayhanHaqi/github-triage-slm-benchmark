@@ -1,0 +1,115 @@
+{
+  "run_dir": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct",
+  "config": "02-lfm2.5-1.2b-instruct",
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct/test.jsonl",
+  "test_sha256": {
+    "baseline": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+    "finetuned": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+    "match": true
+  },
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "baseline": {
+    "checkpoint": "base",
+    "mode": "base",
+    "adapter": null,
+    "strict_accuracy": 0.625,
+    "semantic_accuracy": 0.645,
+    "valid_output_rate": 0.995,
+    "per_class_recall": {
+      "bug": 0.37,
+      "feature-request": 0.92
+    },
+    "per_class_support": {
+      "bug": 100,
+      "feature-request": 100
+    },
+    "confusion": {
+      "bug": {
+        "bug": 37,
+        "feature-request": 62,
+        "INVALID": 1
+      },
+      "feature-request": {
+        "bug": 8,
+        "feature-request": 92,
+        "INVALID": 0
+      }
+    },
+    "predicted_counts": {
+      "bug": 45,
+      "feature-request": 154,
+      "INVALID": 1
+    },
+    "mean_latency_ms": 47.27145017590374,
+    "median_latency_ms": 37.198157515376806,
+    "issues_per_second": 21.154417651222015,
+    "output_tokens_per_second": 75.52127101486259,
+    "total_generation_time_s": 9.454290035180748,
+    "peak_allocated_gb": 2.323739528656006,
+    "peak_reserved_gb": 2.462890625,
+    "mean_input_tokens": 382.155,
+    "median_input_tokens": 234.5,
+    "total_generated_tokens": 714
+  },
+  "finetuned": {
+    "checkpoint": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct/adapter",
+    "mode": "adapter",
+    "adapter": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct/adapter",
+    "strict_accuracy": 0.9,
+    "semantic_accuracy": 0.9,
+    "valid_output_rate": 1.0,
+    "per_class_recall": {
+      "bug": 0.92,
+      "feature-request": 0.88
+    },
+    "per_class_support": {
+      "bug": 100,
+      "feature-request": 100
+    },
+    "confusion": {
+      "bug": {
+        "bug": 92,
+        "feature-request": 8,
+        "INVALID": 0
+      },
+      "feature-request": {
+        "bug": 12,
+        "feature-request": 88,
+        "INVALID": 0
+      }
+    },
+    "predicted_counts": {
+      "bug": 104,
+      "feature-request": 96,
+      "INVALID": 0
+    },
+    "mean_latency_ms": 56.110178355593234,
+    "median_latency_ms": 46.54125904198736,
+    "issues_per_second": 17.82207844114466,
+    "output_tokens_per_second": 52.753352185788195,
+    "total_generation_time_s": 11.222035671118647,
+    "peak_allocated_gb": 2.4562430381774902,
+    "peak_reserved_gb": 2.591796875,
+    "mean_input_tokens": 382.155,
+    "median_input_tokens": 234.5,
+    "total_generated_tokens": 592
+  },
+  "accuracy": {
+    "baseline": {
+      "strict": 0.625,
+      "semantic": 0.645
+    },
+    "finetuned": {
+      "strict": 0.9,
+      "semantic": 0.9
+    },
+    "delta_pp": {
+      "strict": 27.500000000000004,
+      "semantic": 25.5
+    }
+  }
+}

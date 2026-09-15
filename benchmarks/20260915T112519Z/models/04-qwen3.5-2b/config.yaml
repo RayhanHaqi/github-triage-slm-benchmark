@@ -1,0 +1,120 @@
+name: 04-qwen3.5-2b
+description: 'Frozen VS Code issue benchmark: Qwen3.5-2B'
+paths:
+  data_dir: data
+  runs_dir: runs
+sources:
+  bug:
+    github_label: bug
+    repo: microsoft/vscode
+    file: /home/tilakoid/github-triage-data/bugs.json
+  feature-request:
+    github_label: feature-request
+    repo: microsoft/vscode
+    file: /home/tilakoid/github-triage-data/features.json
+cleaning:
+  max_examples_per_class: 1000
+  min_visible_chars: 5
+  title_patterns:
+  - pattern: ^\s*\[\s*bug\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*bug\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*\[\s*feature(?:\s+request)?\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*feature\s+request\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*\[\s*needs?\s+more\s+info(?:rmation)?\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*needs?\s+more\s+info(?:rmation)?\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  body_patterns:
+  - pattern: <!--.*?-->
+    flags: s
+    replacement: ''
+  - pattern: (?im)^#{1,6}\s*(?:issue\s+)?type\s*$\n+\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$
+    flags: ''
+    replacement: ''
+  - pattern: (?im)^\s*(?:\*\*)?(?:issue\s+)?type(?:\*\*)?\s*:\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$
+    flags: ''
+    replacement: ''
+  - pattern: \n{4,}
+    flags: ''
+    replacement: '
+
+
+
+      '
+  whitespace_pattern: \s+
+  duplicate_key_lowercase: true
+split:
+  train_ratio: 0.8
+  val_ratio: 0.9
+  temporal_key: created_at
+  seed: 42
+model:
+  base_model: Qwen/Qwen3.5-2B
+  system_prompt: 'Classify the GitHub issue into exactly one category: bug or feature-request.
+    Return only the category name.'
+  max_seq_length: 2048
+  load_in_4bit: false
+  revision: 15852e8c16360a2fea060d615a32b45270f8a8fc
+  kind: vision
+  trust_remote_code: false
+  use_exact_model_name: true
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0
+  target_modules: all-linear
+  bias: none
+  gradient_checkpointing: unsloth
+  random_state: 42
+  finetune_vision_layers: false
+  finetune_language_layers: true
+  finetune_attention_modules: true
+  finetune_mlp_modules: true
+training:
+  output_subdir: trainer
+  adapter_subdir: adapter
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 4
+  num_train_epochs: 3
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  logging_steps: 10
+  eval_strategy: epoch
+  save_strategy: epoch
+  save_total_limit: 2
+  bf16: true
+  fp16: false
+  optim: adamw_8bit
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  seed: 42
+  report_to: none
+  vision_collator: false
+  resume_from_checkpoint: /home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/04-qwen3.5-2b/trainer/checkpoint-400
+evaluation:
+  split: test
+  max_user_tokens: 1800
+  max_new_tokens: 12
+  do_sample: false
+  pad_eos: true
+  chat_template_kwargs:
+    enable_thinking: false
+benchmark:
+  display_name: Qwen3.5-2B
+  official_checkpoint: Qwen/Qwen3.5-2B
+  pinned_revision: 15852e8c16360a2fea060d615a32b45270f8a8fc
+  method: LoRA, full BF16 base weights (no quantization)
+  compatibility_notes: FastVisionModel; official repo forced; language/attention/MLP
+    LoRA; vision frozen; BF16. Training resumed from checkpoint-400 after external
+    background job interruption.

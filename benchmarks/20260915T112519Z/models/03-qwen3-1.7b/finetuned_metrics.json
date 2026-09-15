@@ -1,0 +1,75 @@
+{
+  "phase": "finetuned",
+  "checkpoint": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/03-qwen3-1.7b/adapter",
+  "mode": "adapter",
+  "base_model": "Qwen/Qwen3-1.7B",
+  "adapter": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/03-qwen3-1.7b/adapter",
+  "model_kind": "language",
+  "requested_revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+  "resolved_revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+  "resolved_revision_source": "model_config",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/03-qwen3-1.7b/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.89,
+  "semantic_accuracy": 0.89,
+  "valid_output_rate": 1.0,
+  "strict_correct": 178,
+  "semantic_correct": 178,
+  "valid_predictions": 200,
+  "per_class_recall": {
+    "bug": 0.92,
+    "feature-request": 0.86
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 92,
+      "feature-request": 8,
+      "INVALID": 0
+    },
+    "feature-request": {
+      "bug": 14,
+      "feature-request": 86,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 106,
+    "feature-request": 94,
+    "INVALID": 0
+  },
+  "mean_input_tokens": 375.41,
+  "median_input_tokens": 230.0,
+  "total_generated_tokens": 494,
+  "output_tokens_per_second": 26.955573047184412,
+  "mean_latency_ms": 91.63225710974075,
+  "median_latency_ms": 76.38602948281914,
+  "issues_per_second": 10.913187468495714,
+  "total_generation_time_s": 18.32645142194815,
+  "peak_allocated_gb": 3.6446290016174316,
+  "peak_reserved_gb": 3.9375
+}

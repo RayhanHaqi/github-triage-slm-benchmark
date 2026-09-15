@@ -1,0 +1,75 @@
+{
+  "phase": "finetuned",
+  "checkpoint": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct/adapter",
+  "mode": "adapter",
+  "base_model": "LiquidAI/LFM2.5-1.2B-Instruct",
+  "adapter": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct/adapter",
+  "model_kind": "language",
+  "requested_revision": "0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+  "resolved_revision": "0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+  "resolved_revision_source": "model_config",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.9,
+  "semantic_accuracy": 0.9,
+  "valid_output_rate": 1.0,
+  "strict_correct": 180,
+  "semantic_correct": 180,
+  "valid_predictions": 200,
+  "per_class_recall": {
+    "bug": 0.92,
+    "feature-request": 0.88
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 92,
+      "feature-request": 8,
+      "INVALID": 0
+    },
+    "feature-request": {
+      "bug": 12,
+      "feature-request": 88,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 104,
+    "feature-request": 96,
+    "INVALID": 0
+  },
+  "mean_input_tokens": 382.155,
+  "median_input_tokens": 234.5,
+  "total_generated_tokens": 592,
+  "output_tokens_per_second": 52.753352185788195,
+  "mean_latency_ms": 56.110178355593234,
+  "median_latency_ms": 46.54125904198736,
+  "issues_per_second": 17.82207844114466,
+  "total_generation_time_s": 11.222035671118647,
+  "peak_allocated_gb": 2.4562430381774902,
+  "peak_reserved_gb": 2.591796875
+}

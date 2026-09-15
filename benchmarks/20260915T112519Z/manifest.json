@@ -1,0 +1,63 @@
+{
+  "status": "completed",
+  "created_at": "2026-09-15T11:25:19.563639+00:00",
+  "dataset_source": "/home/tilakoid/github-triage-data",
+  "dataset_sha256": {
+    "train": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+    "val": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+    "test": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025"
+  },
+  "models": [
+    {
+      "slug": "01-qwen3.5-0.8b",
+      "display_name": "Qwen3.5-0.8B",
+      "checkpoint": "Qwen/Qwen3.5-0.8B",
+      "revision": "2fc06364715b967f1860aea9cf38778875588b17",
+      "kind": "vision",
+      "run_dir": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/01-qwen3.5-0.8b"
+    },
+    {
+      "slug": "02-lfm2.5-1.2b-instruct",
+      "display_name": "LFM2.5-1.2B-Instruct",
+      "checkpoint": "LiquidAI/LFM2.5-1.2B-Instruct",
+      "revision": "0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+      "kind": "language",
+      "run_dir": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct"
+    },
+    {
+      "slug": "03-qwen3-1.7b",
+      "display_name": "Qwen3-1.7B",
+      "checkpoint": "Qwen/Qwen3-1.7B",
+      "revision": "70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
+      "kind": "language",
+      "run_dir": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/03-qwen3-1.7b"
+    },
+    {
+      "slug": "04-qwen3.5-2b",
+      "display_name": "Qwen3.5-2B",
+      "checkpoint": "Qwen/Qwen3.5-2B",
+      "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+      "kind": "vision",
+      "run_dir": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/04-qwen3.5-2b"
+    },
+    {
+      "slug": "05-ministral-3-3b-instruct",
+      "display_name": "Ministral-3-3B-Instruct-2512-BF16",
+      "checkpoint": "mistralai/Ministral-3-3B-Instruct-2512-BF16",
+      "revision": "b6d637bef2393152b3da2b2fde72eecdee30557e",
+      "kind": "vision",
+      "run_dir": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/05-ministral-3-3b-instruct"
+    },
+    {
+      "slug": "06-qwen3.5-4b",
+      "display_name": "Qwen3.5-4B",
+      "checkpoint": "Qwen/Qwen3.5-4B",
+      "revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+      "kind": "vision",
+      "run_dir": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/06-qwen3.5-4b"
+    }
+  ],
+  "completed_at": "2026-09-15T18:18:59.448358+00:00",
+  "report": "report.md",
+  "results_csv": "results.csv"
+}

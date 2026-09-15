@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slm-specialist"
+version = "0.1.0"
+description = "Config-driven SLM fine-tuning harness for GitHub issue triage (gather, prepare, baseline, LoRA SFT, evaluate)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+# Heavy stack used by the baseline/train/evaluate phases; kept optional so
+# gather/prepare/CLI --help work in a plain stdlib+PyYAML environment.
+# Pinned to the exact versions of the successful benchmark environment
+# (benchmarks/20260915T112519Z); see README "Benchmark results".
+# torch==2.11.0 is a platform-specific wheel: install the build matching your
+# CUDA/driver and platform from the appropriate index, e.g.
+#   pip install "torch==2.11.0" --index-url https://download.pytorch.org/whl/cu128
+ml = [
+    "torch==2.11.0",
+    "transformers==5.5.0",
+    "peft==0.20.0",
+    "datasets==4.3.0",
+    "trl==0.24.0",
+    "unsloth==2026.9.4",
+    "unsloth_zoo==2026.9.3",
+    "accelerate==1.15.0",
+    "tqdm==4.70.1",
+]
+
+[project.scripts]
+specialist = "specialist.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

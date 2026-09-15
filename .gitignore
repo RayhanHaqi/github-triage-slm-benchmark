@@ -1,0 +1,59 @@
+# Artifact policy: commit code, configs, tests and small run/benchmark
+# metadata (incl. runs/20260915T093353Z metrics/predictions); never commit
+# model binaries, checkpoint dirs, dataset copies, caches or transcripts.
+# See README "Artifact policy (git)".
+
+# --- Model weights, adapters, trainer state (any run dir) ---
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.gguf
+*.onnx
+*.msgpack
+adapter/
+trainer/
+checkpoint-*/
+
+# --- Compiled / packaging / interpreter caches ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+unsloth_compiled_cache/
+
+# --- Hugging Face / dataset caches ---
+.cache/
+.hf_home/
+huggingface/
+
+# --- Dataset copies (gathered raw JSON, prepared splits) ---
+raw/
+*.jsonl
+
+# --- Obsolete benchmark attempts (not part of the committed record) ---
+# 20260915T100825Z aborted on trainer compatibility bugs (diagnostic only);
+# the retained successful benchmark is 20260915T112519Z (see benchmarks/LATEST).
+/benchmarks/20260915T100825Z/
+
+# --- Test caches and coverage ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Process/error transcripts (runs/ and benchmarks/); summaries live in
+# --- *_metrics.json, comparison.json, report.md, results.csv, manifest.json
+*.log
+error*.txt
+
+# --- Temp / editor junk ---
+*.tmp
+*.temp
+*.bak
+*.orig
+*.swp
+*~
+.DS_Store
+tmp/

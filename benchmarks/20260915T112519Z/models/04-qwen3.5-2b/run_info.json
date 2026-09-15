@@ -1,0 +1,93 @@
+{
+  "status": "success",
+  "display_name": "Qwen3.5-2B",
+  "checkpoint": "Qwen/Qwen3.5-2B",
+  "revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+  "model_kind": "vision",
+  "dataset_sha256": {
+    "train": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+    "val": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+    "test": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025"
+  },
+  "cache_policy": "isolated per model; deleted after evaluation",
+  "weights_policy": "base cache, adapter, trainer checkpoints deleted after evaluation",
+  "compatibility_notes": "FastVisionModel; official repo forced; language/attention/MLP LoRA; vision frozen; BF16.",
+  "started_at": "2026-09-15T11:29:33.442453+00:00",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "phases": {
+    "baseline": {
+      "exit_code": 0,
+      "wall_seconds": 85.25068044662476
+    },
+    "train_resume": {
+      "exit_code": 0,
+      "wall_seconds": 514.9647490978241,
+      "resumed_from_step": 400
+    },
+    "finetuned": {
+      "exit_code": 0,
+      "wall_seconds": 48.3002872467041
+    },
+    "comparison": {
+      "exit_code": 0
+    }
+  },
+  "finished_at": "2026-09-15T16:27:10.636074+00:00",
+  "failure_stage": null,
+  "failure_exit_code": null,
+  "cleanup": {
+    "cache_bytes_deleted": 4618102534,
+    "run_weight_bytes_deleted": 411765756,
+    "base_cache_deleted": true,
+    "adapter_deleted": true,
+    "trainer_deleted": true,
+    "dataset_copies_deleted": true,
+    "short_tmp_deleted": true,
+    "gpu_compute_processes_after_cleanup": []
+  },
+  "attempts": [
+    {
+      "status": "failed",
+      "failure_stage": "train",
+      "failure_exit_code": 1,
+      "phases": {
+        "baseline": {
+          "exit_code": 0,
+          "wall_seconds": 85.25068044662476
+        },
+        "train": {
+          "exit_code": 1,
+          "wall_seconds": 26.9599711894989
+        }
+      },
+      "archived_at": "2026-09-15T13:03:17.685172+00:00",
+      "reason": "AF_UNIX path too long from overly long TMPDIR; retry uses short isolated TMPDIR."
+    },
+    {
+      "status": "interrupted",
+      "stage": "train",
+      "last_observed_step": 430,
+      "resume_checkpoint_step": 400,
+      "estimated_partial_training_seconds": 1147.7,
+      "reason": "Background process ended externally; no model/training exception in log.",
+      "recorded_at": "2026-09-15T16:17:13.074988+00:00"
+    }
+  ],
+  "retry_started_at": "2026-09-15T13:03:17.685182+00:00",
+  "resume_started_at": "2026-09-15T16:17:13.075001+00:00",
+  "training_runtime_total_seconds": 1662.6647490978241
+}

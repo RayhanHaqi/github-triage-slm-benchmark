@@ -1,0 +1,108 @@
+# Snapshot of /home/tilakoid/slm-specialist/configs/vscode-bug-feature.yaml taken 2026-09-15T09:33:53.158673+00:00
+name: vscode-bug-feature
+description: Classify microsoft/vscode issues as bug or feature-request.
+paths:
+  data_dir: /home/tilakoid/slm-specialist/data
+  runs_dir: /home/tilakoid/slm-specialist/runs
+sources:
+  bug:
+    github_label: bug
+    repo: microsoft/vscode
+    file: /home/tilakoid/github-triage-data/bugs.json
+  feature-request:
+    github_label: feature-request
+    repo: microsoft/vscode
+    file: /home/tilakoid/github-triage-data/features.json
+cleaning:
+  max_examples_per_class: 1000
+  min_visible_chars: 5
+  title_patterns:
+  - pattern: ^\s*\[\s*bug\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*bug\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*\[\s*feature(?:\s+request)?\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*feature\s+request\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*\[\s*needs?\s+more\s+info(?:rmation)?\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*needs?\s+more\s+info(?:rmation)?\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  body_patterns:
+  - pattern: <!--.*?-->
+    flags: s
+    replacement: ''
+  - pattern: (?im)^#{1,6}\s*(?:issue\s+)?type\s*$\n+\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$
+    flags: ''
+    replacement: ''
+  - pattern: (?im)^\s*(?:\*\*)?(?:issue\s+)?type(?:\*\*)?\s*:\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$
+    flags: ''
+    replacement: ''
+  - pattern: \n{4,}
+    flags: ''
+    replacement: '
+
+
+
+      '
+  whitespace_pattern: \s+
+  duplicate_key_lowercase: true
+split:
+  train_ratio: 0.8
+  val_ratio: 0.9
+  temporal_key: created_at
+  seed: 42
+model:
+  base_model: Qwen/Qwen3-1.7B
+  system_prompt: 'Classify the GitHub issue into exactly one category: bug or feature-request.
+    Return only the category name.'
+  max_seq_length: 2048
+  load_in_4bit: false
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+  bias: none
+  gradient_checkpointing: unsloth
+  random_state: 42
+training:
+  output_subdir: trainer
+  adapter_subdir: adapter
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 4
+  num_train_epochs: 3
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  logging_steps: 10
+  eval_strategy: epoch
+  save_strategy: epoch
+  save_total_limit: 2
+  bf16: true
+  fp16: false
+  optim: adamw_8bit
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  seed: 42
+  report_to: none
+evaluation:
+  split: test
+  max_user_tokens: 1800
+  max_new_tokens: 12
+  do_sample: false
+  pad_eos: true

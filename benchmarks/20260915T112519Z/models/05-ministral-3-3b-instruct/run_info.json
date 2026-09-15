@@ -1,0 +1,61 @@
+{
+  "status": "success",
+  "display_name": "Ministral-3-3B-Instruct-2512-BF16",
+  "checkpoint": "mistralai/Ministral-3-3B-Instruct-2512-BF16",
+  "revision": "b6d637bef2393152b3da2b2fde72eecdee30557e",
+  "model_kind": "vision",
+  "dataset_sha256": {
+    "train": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+    "val": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+    "test": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025"
+  },
+  "cache_policy": "isolated per model; deleted after evaluation",
+  "weights_policy": "base cache, adapter, trainer checkpoints deleted after evaluation",
+  "compatibility_notes": "Official BF16 checkpoint forced (not FP8/re-upload); FastVisionModel; vision frozen; vision collator; BF16.",
+  "started_at": "2026-09-15T11:31:26.868247+00:00",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "phases": {
+    "baseline": {
+      "exit_code": 0,
+      "wall_seconds": 104.66816520690918
+    },
+    "train": {
+      "exit_code": 0,
+      "wall_seconds": 2608.027471780777
+    },
+    "finetuned": {
+      "exit_code": 0,
+      "wall_seconds": 38.655561685562134
+    },
+    "comparison": {
+      "exit_code": 0,
+      "wall_seconds": 0.03155207633972168
+    }
+  },
+  "finished_at": "2026-09-15T12:17:19.745731+00:00",
+  "failure_stage": null,
+  "failure_exit_code": null,
+  "cleanup": {
+    "cache_bytes_deleted": 15454603257,
+    "run_weight_bytes_deleted": 562390615,
+    "base_cache_deleted": true,
+    "adapter_deleted": true,
+    "trainer_deleted": true,
+    "dataset_copies_deleted": true,
+    "gpu_compute_processes_after_cleanup": []
+  }
+}

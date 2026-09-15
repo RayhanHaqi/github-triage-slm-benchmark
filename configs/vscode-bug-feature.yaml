@@ -1,0 +1,115 @@
+# Config-driven SLM fine-tuning harness: VSCode bug vs feature-request triage.
+#
+# This config reproduces the frozen reference experiment from the sibling
+# ../github-triage-data directory (prepare_vscode_triage.py, baseline_eval.py,
+# finetuned_eval.py, train_lora.py), resolved from the project root. Those
+# dataset files are intentionally not committed; see README "Artifact policy".
+# Cleaning regexes, split ratios, prompt, LoRA/trainer hyper-parameters and
+# evaluation settings are all values here so the pipeline can be re-pointed at
+# another repo/classes by editing this file.
+#
+# Relative filesystem paths resolve against the project root (the parent of the
+# `configs/` directory). `~` and `$ENV_VARS` are expanded before resolution.
+
+name: vscode-bug-feature
+description: "Classify microsoft/vscode issues as bug or feature-request."
+
+paths:
+  # Local staging used by standalone phases without --run-dir.
+  data_dir: data
+  # Root for `specialist run` UTC run directories.
+  runs_dir: runs
+
+# class name -> source. `github_label` is the GitHub label to query for live
+# gathers; `file` points at a previously gathered JSON array. Remove `file`
+# (and keep repo/github_label) to gather live with `gh issue list`.
+# Mapping order is source truth: it fixes class order for cleaning/splits.
+sources:
+  bug:
+    github_label: bug
+    repo: microsoft/vscode
+    file: ../github-triage-data/bugs.json
+  feature-request:
+    github_label: feature-request
+    repo: microsoft/vscode
+    file: ../github-triage-data/features.json
+
+cleaning:
+  # Cap on rows taken per class, in existing (source) order.
+  max_examples_per_class: 1000
+  # Discard records whose title+body has fewer than this many non-whitespace chars.
+  min_visible_chars: 5
+  # Regex rules applied in order to the title; flags: i/m/s/x.
+  title_patterns:
+    - {pattern: '^\s*\[\s*bug\s*\]\s*[:\-]?\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*bug\s*[:\-]\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*\[\s*feature(?:\s+request)?\s*\]\s*[:\-]?\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*feature\s+request\s*[:\-]\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*\[\s*needs?\s+more\s+info(?:rmation)?\s*\]\s*[:\-]?\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*needs?\s+more\s+info(?:rmation)?\s*[:\-]\s*', flags: i, replacement: ''}
+  # Regex rules applied in order to the body.
+  body_patterns:
+    # GitHub template HTML comments
+    - {pattern: '<!--.*?-->', flags: s, replacement: ''}
+    # "### Type\nBug" style headers
+    - {pattern: '(?im)^#{1,6}\s*(?:issue\s+)?type\s*$\n+\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$', flags: '', replacement: ''}
+    # "Type: Bug" / "Issue Type: Feature Request" lines
+    - {pattern: '(?im)^\s*(?:\*\*)?(?:issue\s+)?type(?:\*\*)?\s*:\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$', flags: '', replacement: ''}
+    # Collapse excessive newlines, preserve paragraphs/code
+    - {pattern: '\n{4,}', flags: '', replacement: "\n\n\n"}
+  # Used for the empty check (whitespace removed) and the duplicate key.
+  whitespace_pattern: '\s+'
+  duplicate_key_lowercase: true
+
+split:
+  # Temporal per-class split: train [:int(n*0.8)], val [int(n*0.8):int(n*0.9)],
+  # test [int(n*0.9):]. Ratios are cumulative fractions of each class.
+  train_ratio: 0.8
+  val_ratio: 0.9
+  temporal_key: created_at
+  seed: 42
+
+model:
+  base_model: Qwen/Qwen3-1.7B
+  system_prompt: "Classify the GitHub issue into exactly one category: bug or feature-request. Return only the category name."
+  max_seq_length: 2048
+  load_in_4bit: false
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  bias: none
+  gradient_checkpointing: unsloth
+  random_state: 42
+
+training:
+  # run dir sub-directories for checkpoints and the final adapter
+  output_subdir: trainer
+  adapter_subdir: adapter
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 4
+  num_train_epochs: 3
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.05
+  logging_steps: 10
+  eval_strategy: epoch
+  save_strategy: epoch
+  save_total_limit: 2
+  bf16: true
+  fp16: false
+  optim: adamw_8bit
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  seed: 42
+  report_to: none
+
+evaluation:
+  split: test
+  # Truncate the issue text alone (not the chat template) to this many tokens.
+  max_user_tokens: 1800
+  max_new_tokens: 12
+  do_sample: false
+  pad_eos: true

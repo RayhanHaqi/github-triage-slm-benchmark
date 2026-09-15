@@ -1,0 +1,75 @@
+{
+  "phase": "baseline",
+  "checkpoint": "base",
+  "mode": "base",
+  "base_model": "mistralai/Ministral-3-3B-Instruct-2512-BF16",
+  "adapter": null,
+  "model_kind": "vision",
+  "requested_revision": "b6d637bef2393152b3da2b2fde72eecdee30557e",
+  "resolved_revision": "b6d637bef2393152b3da2b2fde72eecdee30557e",
+  "resolved_revision_source": "model_config",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/05-ministral-3-3b-instruct/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.61,
+  "semantic_accuracy": 0.61,
+  "valid_output_rate": 1.0,
+  "strict_correct": 122,
+  "semantic_correct": 122,
+  "valid_predictions": 200,
+  "per_class_recall": {
+    "bug": 0.28,
+    "feature-request": 0.94
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 28,
+      "feature-request": 72,
+      "INVALID": 0
+    },
+    "feature-request": {
+      "bug": 6,
+      "feature-request": 94,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 34,
+    "feature-request": 166,
+    "INVALID": 0
+  },
+  "mean_input_tokens": 372.58,
+  "median_input_tokens": 220.5,
+  "total_generated_tokens": 568,
+  "output_tokens_per_second": 25.079208983906135,
+  "mean_latency_ms": 113.24121114914306,
+  "median_latency_ms": 82.73015392478555,
+  "issues_per_second": 8.830707388699343,
+  "total_generation_time_s": 22.64824222982861,
+  "peak_allocated_gb": 7.502776622772217,
+  "peak_reserved_gb": 7.646484375
+}

@@ -1,0 +1,75 @@
+{
+  "phase": "baseline",
+  "checkpoint": "base",
+  "mode": "base",
+  "base_model": "Qwen/Qwen3.5-4B",
+  "adapter": null,
+  "model_kind": "vision",
+  "requested_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "resolved_revision": "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a",
+  "resolved_revision_source": "model_config",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/06-qwen3.5-4b/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.885,
+  "semantic_accuracy": 0.885,
+  "valid_output_rate": 1.0,
+  "strict_correct": 177,
+  "semantic_correct": 177,
+  "valid_predictions": 200,
+  "per_class_recall": {
+    "bug": 0.88,
+    "feature-request": 0.89
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 88,
+      "feature-request": 12,
+      "INVALID": 0
+    },
+    "feature-request": {
+      "bug": 11,
+      "feature-request": 89,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 99,
+    "feature-request": 101,
+    "INVALID": 0
+  },
+  "mean_input_tokens": 382.85,
+  "median_input_tokens": 236.5,
+  "total_generated_tokens": 901,
+  "output_tokens_per_second": 17.354805020725284,
+  "mean_latency_ms": 259.5822882838547,
+  "median_latency_ms": 213.86657049879432,
+  "issues_per_second": 3.8523429568757566,
+  "total_generation_time_s": 51.916457656770945,
+  "peak_allocated_gb": 8.916272163391113,
+  "peak_reserved_gb": 9.28515625
+}

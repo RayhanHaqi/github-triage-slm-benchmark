@@ -1,0 +1,50 @@
+{
+  "max_examples_per_class": 1000,
+  "sources": {
+    "bug": {
+      "raw_rows": 1000,
+      "after_cleaning": 999
+    },
+    "feature-request": {
+      "raw_rows": 1000,
+      "after_cleaning": 999
+    }
+  },
+  "cross_label_conflicts": {
+    "count": 1,
+    "numbers": [
+      326474
+    ]
+  },
+  "dropped": {
+    "cross_label_conflict": 2,
+    "duplicate_same_label": 5
+  },
+  "records_total": 1993,
+  "split": {
+    "seed": 42,
+    "temporal_key": "created_at",
+    "train_ratio": 0.8,
+    "val_ratio": 0.9,
+    "sizes": {
+      "train": 1593,
+      "val": 200,
+      "test": 200
+    },
+    "class_counts": {
+      "train": {
+        "feature-request": 797,
+        "bug": 796
+      },
+      "val": {
+        "feature-request": 100,
+        "bug": 100
+      },
+      "test": {
+        "bug": 100,
+        "feature-request": 100
+      }
+    }
+  },
+  "system_prompt": "Classify the GitHub issue into exactly one category: bug or feature-request. Return only the category name."
+}

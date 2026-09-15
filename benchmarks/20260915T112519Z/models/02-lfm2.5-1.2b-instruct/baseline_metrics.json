@@ -1,0 +1,75 @@
+{
+  "phase": "baseline",
+  "checkpoint": "base",
+  "mode": "base",
+  "base_model": "LiquidAI/LFM2.5-1.2B-Instruct",
+  "adapter": null,
+  "model_kind": "language",
+  "requested_revision": "0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+  "resolved_revision": "0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+  "resolved_revision_source": "model_config",
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/20260915T112519Z/models/02-lfm2.5-1.2b-instruct/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.625,
+  "semantic_accuracy": 0.645,
+  "valid_output_rate": 0.995,
+  "strict_correct": 125,
+  "semantic_correct": 129,
+  "valid_predictions": 199,
+  "per_class_recall": {
+    "bug": 0.37,
+    "feature-request": 0.92
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 37,
+      "feature-request": 62,
+      "INVALID": 1
+    },
+    "feature-request": {
+      "bug": 8,
+      "feature-request": 92,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 45,
+    "feature-request": 154,
+    "INVALID": 1
+  },
+  "mean_input_tokens": 382.155,
+  "median_input_tokens": 234.5,
+  "total_generated_tokens": 714,
+  "output_tokens_per_second": 75.52127101486259,
+  "mean_latency_ms": 47.27145017590374,
+  "median_latency_ms": 37.198157515376806,
+  "issues_per_second": 21.154417651222015,
+  "total_generation_time_s": 9.454290035180748,
+  "peak_allocated_gb": 2.323739528656006,
+  "peak_reserved_gb": 2.462890625
+}
