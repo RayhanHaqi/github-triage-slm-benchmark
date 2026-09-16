@@ -8,6 +8,7 @@ data and temporary benchmark roots.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import sys
 import tempfile
@@ -34,6 +35,11 @@ except Exception:  # pragma: no cover - default env without transformers
     HAVE_CACHE_PROVENANCE_LIBS = False
 
 GOOD_LOSSES = (0.51, 0.42, 0.33)
+
+
+def git_blob_oid(data: bytes) -> str:
+    """Git blob object id for unfiltered content (test double for hash-object)."""
+    return hashlib.sha1(b"blob %d\x00" % len(data) + data).hexdigest()
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
@@ -485,11 +491,306 @@ class FakeTrack:
         return next(path for path in self.root.iterdir() if path.is_dir())
 
 
+class FakeApprovedRun(FakeTrack):
+    """Fake partial run 20260916T120019Z: Qwen completed (legacy selection),
+    model2 one nonretryable preflight selection incident, models 3/4 pending."""
+
+    ORIGIN = "385bbb957733e37d31627ff3f67e9931c95e6946"
+    TARGET = "980c3be" + "0" * 33
+    RUN_ID = runner_mod.APPROVED_RUN_ID
+    INCIDENT_ERROR = "preflight: selection exit code 1 (not in the transient allowlist)"
+
+    def __init__(self, tmp: Path, counts=None):
+        super().__init__(tmp, counts)
+        self.run_dir = self.root / self.RUN_ID
+        self._build_approved_run()
+
+    def _snapshot(self, spec: runner_mod.ModelSpec, model_dir: Path) -> str:
+        source = self.project / spec.config
+        config = load_config(source)
+        text = (
+            f"# Snapshot of {source} taken {runner_mod.utc_now()}\n"
+            + yaml.safe_dump(config, sort_keys=False, allow_unicode=True)
+        )
+        model_dir.mkdir(parents=True, exist_ok=True)
+        (model_dir / "config.yaml").write_text(text, encoding="utf-8")
+        return runner_mod.sha256_file(model_dir / "config.yaml")
+
+    def _build_approved_run(self) -> None:
+        run_dir = self.run_dir
+        run_dir.mkdir(parents=True, exist_ok=True)
+        qwen = runner_mod.spec_by_slug("01-qwen3-8b")
+        incident_spec = runner_mod.spec_by_slug(runner_mod.KNOWN_INCIDENT_MODEL)
+
+        config_sha256 = {
+            spec.slug: runner_mod.sha256_file(self.project / spec.config)
+            for spec in runner_mod.EXPECTED_MODELS
+        }
+        snapshot_sha256 = {}
+
+        # -- Qwen completed evidence ---------------------------------------- #
+        model_dir = run_dir / "models" / qwen.slug
+        workspace = model_dir / "workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+        snapshot_sha256[qwen.slug] = self._snapshot(qwen, model_dir)
+        runner_mod.write_json_atomic(
+            workspace / "train_metrics.json", train_metrics(qwen, self.splits, workspace)
+        )
+        runner_mod.write_json_atomic(
+            workspace / "baseline_metrics.json",
+            eval_metrics(qwen, self.splits, mode="base",
+                         examples=self.splits["test"]["rows"]),
+        )
+        runner_mod.write_json_atomic(
+            workspace / "finetuned_metrics.json",
+            eval_metrics(qwen, self.splits, mode="adapter",
+                         examples=self.splits["test"]["rows"],
+                         adapter=workspace / "adapter"),
+        )
+        write_predictions(workspace / "baseline_predictions.csv", self.splits["test"]["rows"])
+        write_predictions(
+            workspace / "finetuned_predictions.csv", self.splits["test"]["rows"],
+            mode="finetuned",
+        )
+        runner_mod.write_json_atomic(
+            workspace / "comparison.json", self.comparison(workspace, {})
+        )
+        pre_dir = model_dir / "preflight"
+        pre_dir.mkdir(parents=True, exist_ok=True)
+        # Legacy selection.json: no resolved_revision_source (pre-fix artifact).
+        selection_meta = {
+            "model": qwen.slug,
+            "repo": qwen.repo,
+            "requested_revision": qwen.revision,
+            "resolved_revision": qwen.revision,
+            "kind": qwen.kind,
+            "threshold": runner_mod.MIN_SUPERVISED_TOKENS,
+            "needs": runner_mod.PREFLIGHT_NEEDS,
+            "selected": {
+                split: [{"index": index, "issue_number": index, "length": 2600 - index}
+                        for index in range(need)]
+                for split, need in runner_mod.PREFLIGHT_NEEDS.items()
+            },
+        }
+        runner_mod.write_json_atomic(pre_dir / "selection.json", selection_meta)
+        runner_mod.write_json_atomic(
+            pre_dir / "preflight.json",
+            {
+                "model": qwen.slug,
+                "repo": qwen.repo,
+                "requested_revision": qwen.revision,
+                "decision": "go",
+                # the runner embeds the standalone selection in the summary
+                "selection": selection_meta,
+            },
+        )
+        phases = {
+            phase: {
+                "status": "ok",
+                "attempts": [{"attempt": 1, "status": "ok",
+                              "started": runner_mod.utc_now(), "ended": runner_mod.utc_now(),
+                              "seconds": 1.0}],
+                "finished_at": runner_mod.utc_now(),
+            }
+            for phase in runner_mod.PHASES
+        }
+        runner_mod.write_json_atomic(
+            model_dir / "run_info.json",
+            {
+                "slug": qwen.slug, "repo": qwen.repo, "revision": qwen.revision,
+                "kind": qwen.kind, "created_at": runner_mod.utc_now(),
+                "status": "completed", "completed_at": runner_mod.utc_now(),
+                "phases": phases,
+                "cleanup": {"status": "ok", "bytes_deleted": 1024},
+            },
+        )
+        runner_mod.write_json_atomic(model_dir / "acceptance.json", {"status": "ok"})
+        runner_mod.write_json_atomic(
+            model_dir / "cleanup.json", {"status": "ok", "bytes_deleted": 1024}
+        )
+
+        # -- model2 incident ------------------------------------------------- #
+        m2_dir = run_dir / "models" / incident_spec.slug
+        m2_ws = m2_dir / "workspace"
+        m2_ws.mkdir(parents=True, exist_ok=True)
+        snapshot_sha256[incident_spec.slug] = self._snapshot(incident_spec, m2_dir)
+        runner_mod.copy_frozen_into_workspace(self.data_dir, m2_ws, self.splits)
+        log_dir = m2_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self.incident_log = log_dir / "selection-a1.log"
+        self.incident_log.write_text(
+            "$ fake selection command\n"
+            "Failed to load torchao/_C_cutlass_90a.abi3.so\n"
+            "Warning: You are sending unauthenticated requests to the HF Hub.\n"
+            "ERROR: tokenizer/processor for mistralai/Ministral-3-8B-Instruct-2512-BF16 "
+            "exposed no resolved commit hash or snapshot path; refusing a selection that "
+            "cannot prove the exact revision\n",
+            encoding="utf-8",
+        )
+        runner_mod.write_json_atomic(
+            m2_dir / "run_info.json",
+            {
+                "slug": incident_spec.slug, "repo": incident_spec.repo,
+                "revision": incident_spec.revision, "kind": incident_spec.kind,
+                "created_at": runner_mod.utc_now(), "status": "failed",
+                "failed_at": runner_mod.utc_now(),
+                "failure": {"phase": "preflight", "error": self.INCIDENT_ERROR,
+                            "retryable": False},
+                "phases": {
+                    "preflight": {
+                        "status": "failed", "failed_at": runner_mod.utc_now(),
+                        "attempts": [{
+                            "attempt": 1, "status": "failed",
+                            "started": runner_mod.utc_now(), "ended": runner_mod.utc_now(),
+                            "seconds": 1.0,
+                            "error": self.INCIDENT_ERROR,
+                            "retryable": False,
+                            "log": str(self.incident_log),
+                        }],
+                    }
+                },
+            },
+        )
+
+        # -- manifest --------------------------------------------------------- #
+        data_report, _ = runner_mod.frozen_data_report(self.data_dir, self.splits)
+        runner = self.runner()
+        manifest = {
+            "track": runner_mod.TRACK,
+            "run_id": self.RUN_ID,
+            "status": "partial",
+            "created_at": runner_mod.utc_now(),
+            "finished_at": runner_mod.utc_now(),
+            "last_error": f"model {incident_spec.slug} failed: {self.INCIDENT_ERROR}",
+            "git_commit": self.ORIGIN,
+            "python": runner.python,
+            "environment": self.versions,
+            "gpu": dict(self.gpu),
+            "config_sha256": config_sha256,
+            "config_snapshot_sha256": snapshot_sha256,
+            "data": {"source": str(self.data_dir), "splits": data_report},
+            "vram": {"go_gib": runner_mod.VRAM_GO_GIB,
+                     "repeat_max_gib": runner_mod.VRAM_REPEAT_MAX_GIB,
+                     "total_gib": self.gpu["total_gib"]},
+            "models": [
+                {"index": 1, "slug": qwen.slug, "repo": qwen.repo, "revision": qwen.revision,
+                 "kind": qwen.kind, "status": "completed", "failure": None,
+                 "run_info": f"models/{qwen.slug}/run_info.json"},
+                {"index": 2, "slug": incident_spec.slug, "repo": incident_spec.repo,
+                 "revision": incident_spec.revision, "kind": incident_spec.kind,
+                 "status": "failed",
+                 "failure": {"phase": "preflight", "error": self.INCIDENT_ERROR,
+                             "retryable": False},
+                 "run_info": f"models/{incident_spec.slug}/run_info.json"},
+                {"index": 3, "slug": runner_mod.EXPECTED_MODELS[2].slug,
+                 "repo": runner_mod.EXPECTED_MODELS[2].repo,
+                 "revision": runner_mod.EXPECTED_MODELS[2].revision,
+                 "kind": runner_mod.EXPECTED_MODELS[2].kind, "status": "pending",
+                 "failure": None,
+                 "run_info": f"models/{runner_mod.EXPECTED_MODELS[2].slug}/run_info.json"},
+                {"index": 4, "slug": runner_mod.EXPECTED_MODELS[3].slug,
+                 "repo": runner_mod.EXPECTED_MODELS[3].repo,
+                 "revision": runner_mod.EXPECTED_MODELS[3].revision,
+                 "kind": runner_mod.EXPECTED_MODELS[3].kind, "status": "pending",
+                 "failure": None,
+                 "run_info": f"models/{runner_mod.EXPECTED_MODELS[3].slug}/run_info.json"},
+            ],
+        }
+        runner_mod.write_json_atomic(run_dir / "manifest.json", manifest)
+        self.manifest = manifest
+
+        self.qwen_evidence = {
+            relative: runner_mod.sha256_file(run_dir / relative)
+            for relative in runner_mod.model_evidence_relative_paths(qwen)
+        }
+        self.qwen_bytes = {
+            relative: (run_dir / relative).read_bytes()
+            for relative in runner_mod.model_evidence_relative_paths(qwen)
+        }
+        self.incident_error_sha = runner_mod.sha256_str(self.INCIDENT_ERROR)
+        self.incident_log_sha = runner_mod.sha256_file(self.incident_log)
+        self.committed_selection_bytes = (
+            run_dir / "models" / qwen.slug / "preflight" / "selection.json"
+        ).read_bytes()
+        self.default_diff_paths = [
+            "scripts/run_qlora_large.py",
+            "tests/test_qlora_runner.py",
+            f"benchmarks/{runner_mod.TRACK}/{self.RUN_ID}/manifest.json",
+        ]
+
+        # Faked target-commit blobs: captured once, then served by probe_git_show.
+        self.committed_blobs = {
+            f"benchmarks/{runner_mod.TRACK}/{self.RUN_ID}/{relative}": data
+            for relative, data in self.qwen_bytes.items()
+        }
+        for relative in ("manifest.json", f"models/{incident_spec.slug}/run_info.json"):
+            repo_path = f"benchmarks/{runner_mod.TRACK}/{self.RUN_ID}/{relative}"
+            self.committed_blobs[repo_path] = (run_dir / relative).read_bytes()
+        self.committed_oids = {
+            path: git_blob_oid(data) for path, data in self.committed_blobs.items()
+        }
+
+    def recommit(self, relative: str, data: bytes) -> None:
+        """Update the faked committed blob and the working file together."""
+        repo_path = f"benchmarks/{runner_mod.TRACK}/{self.RUN_ID}/{relative}"
+        self.committed_blobs[repo_path] = data
+        self.committed_oids[repo_path] = git_blob_oid(data)
+        working = self.run_dir / relative
+        working.parent.mkdir(parents=True, exist_ok=True)
+        working.write_bytes(data)
+
+    def approved_patches(self, *, head=None, ancestor=True, paths=None, semantic=None,
+                         binary=b"fake-binary-diff", show=None):
+        target = self.TARGET
+        default_ids = {"src": ("a" * 40, "a" * 40),
+                       "configs/qlora-large": ("b" * 40, "b" * 40),
+                       "pyproject.toml": ("c" * 40, "c" * 40)}
+
+        def rev_parse(root, spec):
+            revision, _, path = spec.partition(":")
+            if revision == self.ORIGIN:
+                origin_id, _target_id = (semantic or default_ids).get(
+                    path, ("missing", "missing")
+                )
+                return origin_id
+            if path in self.committed_oids:
+                return self.committed_oids[path]
+            _origin_id, target_id = (semantic or default_ids).get(path, ("missing", "missing"))
+            return target_id
+
+        def show_bytes(root, spec):
+            if show is not None:
+                return show(root, spec)
+            _, _, path = spec.partition(":")
+            return self.committed_blobs[path]
+
+        def file_oid(root, path):
+            return git_blob_oid(Path(path).read_bytes())
+
+        return [
+            mock.patch.object(runner_mod, "probe_git_head", return_value=head or target),
+            mock.patch.object(runner_mod, "probe_git_is_ancestor", return_value=ancestor),
+            mock.patch.object(
+                runner_mod, "probe_git_diff_paths",
+                return_value=paths if paths is not None else self.default_diff_paths,
+            ),
+            mock.patch.object(runner_mod, "probe_git_diff_binary", return_value=binary),
+            mock.patch.object(runner_mod, "probe_git_rev_parse", side_effect=rev_parse),
+            mock.patch.object(runner_mod, "probe_git_show", side_effect=show_bytes),
+            mock.patch.object(runner_mod, "probe_git_file_oid", side_effect=file_oid),
+            mock.patch.object(
+                runner_mod, "KNOWN_INCIDENT_LOG_SHA256", self.incident_log_sha
+            ),
+        ]
+
+
 class PatchedTrackTest(unittest.TestCase):
+    track_class = FakeTrack
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.track = FakeTrack(Path(self.tmp.name))
+        self.track = self.track_class(Path(self.tmp.name))
         self._stack = ExitStack()
         self.addCleanup(self._stack.close)
         for patcher in self.track.patches():
@@ -719,20 +1020,20 @@ class GitGuardTest(unittest.TestCase):
     def test_only_exact_allowed_untracked_paths_pass(self):
         active = "benchmarks/qlora-large/20260101T000000Z/"
         lines = [f"?? {active}manifest.json", f"?? {active}models/01-qwen3-8b/run_info.json"]
-        self.assertEqual(runner_mod.git_tree_problems(lines, allowed_untracked=(active,)), [])
-        # exact-prefix only: sibling runs and collapsed directories are rejected
+        self.assertEqual(runner_mod.git_tree_problems(lines, allowed_prefixes=(active,)), [])
+        # exact-prefix only: sibling runs and the track LATEST are rejected
         problems = runner_mod.git_tree_problems(
             [f"?? {active}manifest.json",
              "?? benchmarks/qlora-large/20250101T000000Z/manifest.json",
              "?? benchmarks/qlora-large/LATEST"],
-            allowed_untracked=(active,),
+            allowed_prefixes=(active,),
         )
         self.assertEqual(len(problems), 2)
         self.assertTrue(all("outside the active run" in problem for problem in problems))
-        # a collapsed directory entry is not allowed either
+        # a collapsed directory entry is not allowed by a file-level prefix either
         problems = runner_mod.git_tree_problems(
             ["?? benchmarks/qlora-large/20260101T000000Z/"],
-            allowed_untracked=("benchmarks/qlora-large/20260101T000000Z/manifest.json",),
+            allowed_prefixes=("benchmarks/qlora-large/20260101T000000Z/manifest.json",),
         )
         self.assertTrue(any("outside the active run" in problem for problem in problems))
         # new runs / dry-run allow nothing
@@ -740,6 +1041,27 @@ class GitGuardTest(unittest.TestCase):
         self.assertTrue(problems)
         problems = runner_mod.git_tree_problems([" M src/specialist/train.py"])
         self.assertTrue(any("tracked change" in problem for problem in problems))
+
+    def test_resume_allows_tracked_active_paths_only(self):
+        active = "benchmarks/qlora-large/20260101T000000Z/"
+        tracked = [f" M {active}models/01-qwen3-8b/run_info.json"]
+        # tracked status under the active prefix is tolerated only when asked
+        self.assertEqual(
+            runner_mod.git_tree_problems(
+                tracked, allowed_prefixes=(active,), allow_tracked=True
+            ),
+            [],
+        )
+        self.assertTrue(
+            runner_mod.git_tree_problems(tracked, allowed_prefixes=(active,))
+        )
+        # source and sibling dirt stay fatal
+        mixed = tracked + [" M scripts/run_qlora_large.py",
+                           "?? benchmarks/qlora-large/19990101T000000Z/manifest.json"]
+        problems = runner_mod.git_tree_problems(
+            mixed, allowed_prefixes=(active,), allow_tracked=True
+        )
+        self.assertEqual(len(problems), 2)
 
     def test_probe_git_status_uses_full_untracked_listing(self):
         result = mock.Mock(returncode=0, stdout="", stderr="")
@@ -2573,6 +2895,799 @@ class SetupFailureTest(PatchedTrackTest):
         self.assertFalse(
             any(slug == "02-ministral-3-8b-instruct" for slug, _stem in self.track.calls)
         )
+
+
+class CompatibilityApprovalTest(PatchedTrackTest):
+    track_class = FakeApprovedRun
+
+    def setUp(self):
+        super().setUp()
+        self.run_dir = self.track.run_dir
+        self.target = FakeApprovedRun.TARGET
+        self.origin = FakeApprovedRun.ORIGIN
+
+    def enter(self, patches):
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        for patcher in patches:
+            stack.enter_context(patcher)
+
+    def resume(self, **kwargs):
+        kwargs.setdefault("resume", self.run_dir)
+        kwargs.setdefault("retry_failed", True)
+        return self.track.runner(**kwargs)
+
+    def manifest_bytes(self) -> bytes:
+        return (self.run_dir / "manifest.json").read_bytes()
+
+    def test_approval_success_records_audit_and_continues(self):
+        import hashlib
+
+        self.enter(self.track.approved_patches())
+        self.assertEqual(
+            self.resume(approve_compatible_runner_change=self.target).run(), 0
+        )
+        manifest = runner_mod.read_json(self.run_dir / "manifest.json")
+        self.assertEqual(manifest["git_commit"], self.origin)
+        self.assertEqual(manifest["effective_git_commit"], self.target)
+        self.assertEqual(len(manifest["compatibility_deviations"]), 1)
+        record = manifest["compatibility_deviations"][0]
+        self.assertTrue(record["id"] and record["approved_at"] and record["reason"])
+        self.assertEqual(record["kind"], runner_mod.COMPATIBILITY_KIND)
+        self.assertEqual(record["from"], self.origin)
+        self.assertEqual(record["to"], self.target)
+        self.assertEqual(
+            record["diff"]["format"], "git diff --binary --full-index --no-ext-diff"
+        )
+        self.assertEqual(
+            record["diff"]["sha256"], hashlib.sha256(b"fake-binary-diff").hexdigest()
+        )
+        self.assertEqual(record["diff"]["paths"], sorted(self.track.default_diff_paths))
+        for path, ids in record["semantic_ids"].items():
+            self.assertEqual(ids["origin"], ids["target"], path)
+        self.assertEqual(
+            record["current"]["config_sha256"], self.track.manifest["config_sha256"]
+        )
+        self.assertEqual(record["current"]["data"], self.track.manifest["data"])
+        self.assertEqual(record["current"]["environment"], self.track.versions)
+        self.assertEqual(record["current"]["python"], self.track.runner().python)
+        self.assertEqual(record["retained_models"], ["01-qwen3-8b"])
+        self.assertEqual(record["qwen_evidence_sha256"], self.track.qwen_evidence)
+        overlay = record["legacy_selection_overlays"]["01-qwen3-8b"]
+        self.assertEqual(overlay["path"], "models/01-qwen3-8b/preflight/selection.json")
+        self.assertEqual(overlay["json_pointer"], "/resolved_revision_source")
+        self.assertEqual(overlay["effective_source"], "legacy_unrecorded")
+        self.assertEqual(
+            overlay["selection_sha256"],
+            self.track.qwen_evidence["models/01-qwen3-8b/preflight/selection.json"],
+        )
+        nested = overlay["nested"]
+        self.assertEqual(nested["path"], "models/01-qwen3-8b/preflight/preflight.json")
+        self.assertEqual(nested["json_pointer"], "/selection/resolved_revision_source")
+        self.assertEqual(nested["effective_source"], "legacy_unrecorded")
+        self.assertTrue(nested["selection_matches_standalone"])
+        self.assertEqual(
+            nested["selection_sha256"],
+            self.track.qwen_evidence["models/01-qwen3-8b/preflight/preflight.json"],
+        )
+        self.assertEqual(record["retry_exception"]["error_sha256"],
+                         self.track.incident_error_sha)
+        self.assertEqual(record["retry_exception"]["log_sha256"],
+                         self.track.incident_log_sha)
+        self.assertEqual(record["retry_exception"], {
+            "model": runner_mod.KNOWN_INCIDENT_MODEL,
+            "phase": runner_mod.KNOWN_INCIDENT_PHASE,
+            "attempt": 1,
+            "original_retryable": False,
+            "error": runner_mod.KNOWN_INCIDENT_ERROR,
+            "error_sha256": self.track.incident_error_sha,
+            "log": runner_mod.KNOWN_INCIDENT_LOG_REL,
+            "log_sha256": self.track.incident_log_sha,
+        })
+        self.assertEqual(record["maximum_additional_attempts"], 1)
+
+        self.assertEqual(manifest["status"], "completed")
+        self.assertEqual([m["status"] for m in manifest["models"]], ["completed"] * 4)
+        # accepted Qwen JSON is byte-for-byte untouched
+        for relative, before in self.track.qwen_bytes.items():
+            self.assertEqual((self.run_dir / relative).read_bytes(), before, relative)
+        # model2 attempt2 records the deviation
+        m2_info = runner_mod.read_json(
+            self.run_dir / "models" / "02-ministral-3-8b-instruct" / "run_info.json"
+        )
+        attempts = m2_info["phases"]["preflight"]["attempts"]
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(
+            attempts[1]["retry"]["deviation"]["kind"], runner_mod.COMPATIBILITY_RETRY_KIND
+        )
+        self.assertEqual(attempts[1]["retry"]["deviation"]["id"], record["id"])
+
+    def test_wrong_and_non_full_target_refused_before_mutation(self):
+        before = self.manifest_bytes()
+        for bad, marker in (
+            ("not-a-sha", "40-lowercase-hex"),
+            ("A" * 40, "40-lowercase-hex"),
+            ("0" * 40, "HEAD"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(approve_compatible_runner_change=bad).run()
+            self.assertIn(marker, str(ctx.exception), bad)
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_ancestry_diff_semantic_and_committed_selection_checks(self):
+        before = self.manifest_bytes()
+        self.enter(self.track.approved_patches(ancestor=False))
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("ancestor", str(ctx.exception))
+
+        self.enter(self.track.approved_patches(
+            paths=self.track.default_diff_paths + ["src/specialist/train.py"]
+        ))
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("disallowed paths", str(ctx.exception))
+
+        differing = {"src": ("a" * 40, "d" * 40),
+                     "configs/qlora-large": ("b" * 40, "e" * 40),
+                     "pyproject.toml": ("c" * 40, "f" * 40)}
+        self.enter(self.track.approved_patches(semantic={
+            "src": ("a" * 40, "d" * 40),
+            "configs/qlora-large": ("b" * 40, "b" * 40),
+            "pyproject.toml": ("c" * 40, "c" * 40),
+        }))
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("semantic id", str(ctx.exception))
+        self.assertTrue(differing)  # sanity
+
+        self.enter(self.track.approved_patches(show=lambda root, spec: b"other bytes"))
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("working manifest bytes differ", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_changed_config_refused(self):
+        self.enter(self.track.approved_patches())
+        before = self.manifest_bytes()
+        config_path = self.track.project / runner_mod.EXPECTED_MODELS[0].config
+        config = load_config(config_path)
+        config["training"]["learning_rate"] = 1.0
+        config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("source config sha256", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_changed_data_refused(self):
+        self.enter(self.track.approved_patches())
+        before = self.manifest_bytes()
+        with (self.track.data_dir / "train.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write('{"issue_number": 9999, "input": "x", "label": "bug"}\n')
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("frozen train data", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_changed_env_and_python_refused(self):
+        self.enter(self.track.approved_patches())
+        before = self.manifest_bytes()
+        versions = dict(self.track.versions)
+        versions["transformers"] = "9.9.9"
+        with mock.patch.object(runner_mod, "probe_versions", return_value=versions):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("environment", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+        manifest = runner_mod.read_json(self.run_dir / "manifest.json")
+        manifest["python"] = "/usr/bin/other-python"
+        runner_mod.write_json_atomic(self.run_dir / "manifest.json", manifest)
+        before = self.manifest_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("working manifest bytes differ", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_second_deviation_refused(self):
+        manifest = runner_mod.read_json(self.run_dir / "manifest.json")
+        manifest["compatibility_deviations"] = [{
+            "id": "existing", "kind": runner_mod.COMPATIBILITY_KIND,
+            "from": self.origin, "to": self.target,
+        }]
+        runner_mod.write_json_atomic(self.run_dir / "manifest.json", manifest)
+        before = self.manifest_bytes()
+        self.enter(self.track.approved_patches())
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("second one", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_resume_git_guard_allowances(self):
+        self.enter(self.track.approved_patches())
+        active = f"benchmarks/{runner_mod.TRACK}/{runner_mod.APPROVED_RUN_ID}/"
+        with mock.patch.object(
+            runner_mod, "probe_git_status",
+            return_value=[f" M {active}manifest.json"],
+        ):
+            self.assertEqual(
+                self.resume(approve_compatible_runner_change=self.target).run(), 0
+            )
+        # after completion the deviation record is reloaded; source/sibling dirt fatal
+        with mock.patch.object(
+            runner_mod, "probe_git_status",
+            return_value=[f" M {active}manifest.json", " M scripts/run_qlora_large.py"],
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume().run()
+        self.assertIn("tracked change", str(ctx.exception))
+        with mock.patch.object(
+            runner_mod, "probe_git_status",
+            return_value=["?? benchmarks/qlora-large/19990101T000000Z/manifest.json"],
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume().run()
+        self.assertIn("outside the active run", str(ctx.exception))
+
+    def test_legacy_selection_overlay_exact_only(self):
+        spec = runner_mod.EXPECTED_MODELS[0]
+        selection_path = (
+            self.run_dir / "models" / spec.slug / "preflight" / "selection.json"
+        )
+        selection = runner_mod.read_json(selection_path)
+        # modern sources stay strict; the overlay only forgives a missing source
+        self.assertTrue(runner_mod.selection_problems(selection, spec))
+        self.assertEqual(
+            runner_mod.selection_problems(selection, spec, allow_legacy_source=True), []
+        )
+        for mutated in (
+            dict(selection, resolved_revision="0" * 40),
+            dict(selection, resolved_revision_source="requested"),
+        ):
+            self.assertTrue(
+                runner_mod.selection_problems(mutated, spec, allow_legacy_source=True)
+            )
+
+    def test_legacy_overlay_byte_mutation_refused(self):
+        self.enter(self.track.approved_patches())
+        spec = runner_mod.EXPECTED_MODELS[0]
+        selection_path = (
+            self.run_dir / "models" / spec.slug / "preflight" / "selection.json"
+        )
+        mutated = runner_mod.read_json(selection_path)
+        mutated["selected"]["train"] = mutated["selected"]["train"][:7]
+        runner_mod.write_json_atomic(selection_path, mutated)
+        before = self.manifest_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("differs from the target commit baseline", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_working_manifest_must_match_committed_blob(self):
+        self.enter(self.track.approved_patches())
+        manifest_path = self.run_dir / "manifest.json"
+        manifest = runner_mod.read_json(manifest_path)
+        manifest["last_error"] = "tampered after commit"
+        tampered = (
+            json.dumps(manifest, ensure_ascii=False, indent=2, default=str) + "\n"
+        ).encode("utf-8")
+        manifest_path.write_bytes(tampered)
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("working manifest bytes differ", str(ctx.exception))
+        self.assertEqual(manifest_path.read_bytes(), tampered)
+
+    def test_wrong_origin_refused(self):
+        self.enter(self.track.approved_patches())
+        manifest_path = self.run_dir / "manifest.json"
+        manifest = runner_mod.read_json(manifest_path)
+        manifest["git_commit"] = "a" * 40
+        runner_mod.write_json_atomic(manifest_path, manifest)
+        before = manifest_path.read_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("origin commit", str(ctx.exception))
+        self.assertEqual(manifest_path.read_bytes(), before)
+
+    def test_every_evidence_path_must_match_committed_blob(self):
+        self.enter(self.track.approved_patches())
+        qwen = runner_mod.EXPECTED_MODELS[0]
+        for relative in runner_mod.model_evidence_relative_paths(qwen):
+            path = self.run_dir / relative
+            original = path.read_bytes()
+            path.write_bytes(original + b"\n")
+            before = self.manifest_bytes()
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(approve_compatible_runner_change=self.target).run()
+            self.assertIn(relative, str(ctx.exception))
+            self.assertEqual(self.manifest_bytes(), before)
+            path.write_bytes(original)
+
+    def test_nested_overlay_binding_and_mutations(self):
+        self.enter(self.track.approved_patches())
+        qwen = runner_mod.EXPECTED_MODELS[0]
+        selection_rel = f"models/{qwen.slug}/preflight/selection.json"
+        preflight_rel = f"models/{qwen.slug}/preflight/preflight.json"
+        selection_bytes = (self.run_dir / selection_rel).read_bytes()
+        nested_bytes = (self.run_dir / preflight_rel).read_bytes()
+        nested = json.loads(nested_bytes)
+
+        # working nested copy only: bytes no longer match the committed blob
+        working = self.run_dir / preflight_rel
+        working.write_bytes(nested_bytes + b"\n")
+        before = self.manifest_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn(preflight_rel, str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+        working.write_bytes(nested_bytes)
+
+        # nested selection no longer semantically matches the standalone one
+        mutated_nested = json.loads(nested_bytes)
+        changed = json.loads(json.dumps(mutated_nested["selection"]))
+        changed["selected"]["train"] = changed["selected"]["train"][:7]
+        mutated_nested["selection"] = changed
+        self.track.recommit(
+            preflight_rel, (json.dumps(mutated_nested, indent=2) + "\n").encode("utf-8")
+        )
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("nested legacy selection does not match", str(ctx.exception))
+        self.track.recommit(preflight_rel, nested_bytes)
+
+        # standalone source pointer recorded: no longer legacy
+        standalone = json.loads(selection_bytes)
+        standalone["resolved_revision_source"] = "object_metadata"
+        self.track.recommit(
+            selection_rel, (json.dumps(standalone, indent=2) + "\n").encode("utf-8")
+        )
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("legacy selection records a resolved_revision_source", str(ctx.exception))
+        self.track.recommit(selection_rel, selection_bytes)
+
+        # nested copy source pointer recorded: no longer legacy
+        nested_source = json.loads(nested_bytes)
+        nested_source["selection"]["resolved_revision_source"] = "object_metadata"
+        self.track.recommit(
+            preflight_rel, (json.dumps(nested_source, indent=2) + "\n").encode("utf-8")
+        )
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("nested legacy selection records", str(ctx.exception))
+        self.track.recommit(preflight_rel, nested_bytes)
+
+    def test_semantically_invalid_target_blob_evidence_refused_without_mutation(self):
+        # Evidence bytes match the target commit blob, but the semantics are broken
+        # (Qwen run_info says failed). The semantic gate must refuse before any
+        # manifest/run file mutation.
+        self.enter(self.track.approved_patches())
+        run_info_rel = "models/01-qwen3-8b/run_info.json"
+        run_info = runner_mod.read_json(self.run_dir / run_info_rel)
+        run_info["status"] = "failed"
+        self.track.recommit(
+            run_info_rel, (json.dumps(run_info, indent=2) + "\n").encode("utf-8")
+        )
+        before = self.manifest_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        message = str(ctx.exception)
+        self.assertIn("qwen evidence", message)
+        self.assertIn("run_info status", message)
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_retry_exception_matching_and_variants(self):
+        rel_log = "models/02-ministral-3-8b-instruct/logs/selection-a1.log"
+        exception = {
+            "error": self.track.INCIDENT_ERROR,
+            "error_sha256": self.track.incident_error_sha,
+            "log": rel_log,
+            "log_sha256": self.track.incident_log_sha,
+        }
+        attempt = {
+            "attempt": 1,
+            "status": "failed", "retryable": False,
+            "error": self.track.INCIDENT_ERROR,
+            "log": str(self.track.incident_log),
+        }
+        runner = self.track.runner()
+        runner.run_dir = self.run_dir
+        self.assertTrue(runner._attempt_matches_exception(attempt, exception))
+        for variant in (
+            {**attempt, "error": "preflight: selection exit code 2"},
+            {**attempt, "log": str(self.run_dir / "other.log")},
+            {**attempt, "attempt": 2},
+        ):
+            self.assertFalse(runner._attempt_matches_exception(variant, exception))
+        # mutated log bytes after the record was taken no longer match
+        with self.track.incident_log.open("a", encoding="utf-8") as handle:
+            handle.write("extra\n")
+        self.assertFalse(runner._attempt_matches_exception(attempt, exception))
+
+    def test_unapproved_origin_failure_not_retryable(self):
+        # Without approval the legacy Qwen selection cannot be revalidated, so give
+        # Qwen a modern source to exercise the retry policy itself.
+        selection_rel = "models/01-qwen3-8b/preflight/selection.json"
+        selection = runner_mod.read_json(self.run_dir / selection_rel)
+        selection["resolved_revision_source"] = "object_metadata"
+        self.track.recommit(
+            selection_rel, (json.dumps(selection, indent=2) + "\n").encode("utf-8")
+        )
+        with mock.patch.object(runner_mod, "probe_git_head", return_value=self.origin):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume().run()
+        self.assertIn("not retryable", str(ctx.exception))
+
+    def test_incident_exact_variants_refused(self):
+        self.enter(self.track.approved_patches())
+        run_info_rel = f"models/{runner_mod.KNOWN_INCIDENT_MODEL}/run_info.json"
+        original = (self.run_dir / run_info_rel).read_bytes()
+
+        def variant(mutate, marker):
+            data = json.loads(original)
+            mutate(data)
+            self.track.recommit(
+                run_info_rel, (json.dumps(data, indent=2) + "\n").encode("utf-8")
+            )
+            before = self.manifest_bytes()
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(approve_compatible_runner_change=self.target).run()
+            self.assertIn(marker, str(ctx.exception), marker)
+            self.assertEqual(self.manifest_bytes(), before)
+
+        def attempt(data):
+            return data["phases"]["preflight"]["attempts"][0]
+
+        variant(lambda d: attempt(d).__setitem__("attempt", 2), "attempt number")
+        variant(lambda d: attempt(d).__setitem__("status", "ok"), "status")
+        variant(lambda d: attempt(d).__setitem__("retryable", True), "retryable")
+        variant(
+            lambda d: attempt(d).__setitem__("error", "preflight: selection exit code 1"),
+            "error",
+        )
+        variant(
+            lambda d: attempt(d).__setitem__("log", str(self.run_dir / "other.log")),
+            "log path",
+        )
+        variant(
+            lambda d: d["phases"]["preflight"]["attempts"].append(
+                dict(attempt(d), attempt=2)
+            ),
+            "attempts 2",
+        )
+        variant(lambda d: d.pop("failure"), "top-level failure")
+        variant(lambda d: d["failure"].__setitem__("error", "other error"), "top-level failure")
+        variant(lambda d: d.__setitem__("status", "completed"), "status")
+        variant(
+            lambda d: d["phases"]["preflight"].__setitem__("status", "ok"),
+            "preflight status",
+        )
+        self.track.recommit(run_info_rel, original)
+
+        # The pinned log SHA is the only accepted log; old marker text is not enough.
+        log_path = self.run_dir / runner_mod.KNOWN_INCIDENT_LOG_REL
+        original_log = log_path.read_bytes()
+        log_path.write_text(
+            "$ fake selection command\n"
+            "ERROR: tokenizer/processor exposed no resolved commit hash or snapshot path\n"
+            "TypeError: string indices must be integers\n",
+            encoding="utf-8",
+        )
+        before = self.manifest_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("incident log", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+        log_path.unlink()
+        before = self.manifest_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("incident log missing", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+        log_path.write_bytes(original_log)
+
+        # No model2 preflight workspace, attempt-*, selection.json or preflight.json.
+        pre_dir = self.run_dir / "models" / runner_mod.KNOWN_INCIDENT_MODEL / "preflight"
+        for name in ("selection.json", "preflight.json", "attempt-1", "attempt-9"):
+            pre_dir.mkdir(parents=True, exist_ok=True)
+            (pre_dir / name).write_text("{}", encoding="utf-8")
+            before = self.manifest_bytes()
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(approve_compatible_runner_change=self.target).run()
+            self.assertIn("unexpected preflight artifact", str(ctx.exception))
+            self.assertEqual(self.manifest_bytes(), before)
+            (pre_dir / name).unlink()
+
+    def test_third_attempt_remains_blocked(self):
+        self.track.error_plan[
+            ("02-ministral-3-8b-instruct", "preflight-first-baseline")
+        ] = [(1, "timed out")]
+        self.enter(self.track.approved_patches())
+        with self.assertRaises(runner_mod.RunnerError):
+            self.resume(approve_compatible_runner_change=self.target).run()
+        manifest = runner_mod.read_json(self.run_dir / "manifest.json")
+        self.assertEqual(len(manifest["compatibility_deviations"]), 1)
+        m2_dir = self.run_dir / "models" / "02-ministral-3-8b-instruct"
+        run_info = runner_mod.read_json(m2_dir / "run_info.json")
+        preflight = run_info["phases"]["preflight"]
+        self.assertEqual(len(preflight["attempts"]), 2)
+        preflight["attempts"][1]["retryable"] = False
+        run_info["status"] = "failed"
+        runner_mod.write_json_atomic(m2_dir / "run_info.json", run_info)
+        manifest["models"][1]["status"] = "failed"
+        runner_mod.write_json_atomic(self.run_dir / "manifest.json", manifest)
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume().run()
+        self.assertIn("not retryable", str(ctx.exception))
+        # the real-shaped runner-produced attempt 2 passed validation; the refusal
+        # comes from the retry policy, not attempt validation
+        self.assertNotIn("attempt2", str(ctx.exception))
+        run_info = runner_mod.read_json(m2_dir / "run_info.json")
+        self.assertEqual(len(run_info["phases"]["preflight"]["attempts"]), 2)  # no third
+
+    def test_qwen_evidence_mutation_blocks_resume(self):
+        self.track.error_plan[
+            ("02-ministral-3-8b-instruct", "preflight-first-baseline")
+        ] = [(1, "timed out")]
+        self.enter(self.track.approved_patches())
+        with self.assertRaises(runner_mod.RunnerError):
+            self.resume(approve_compatible_runner_change=self.target).run()
+        manifest = runner_mod.read_json(self.run_dir / "manifest.json")
+        self.assertEqual(len(manifest["compatibility_deviations"]), 1)
+        selection_path = (
+            self.run_dir / "models" / "01-qwen3-8b" / "preflight" / "selection.json"
+        )
+        selection_path.write_text(
+            selection_path.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+        )
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume().run()
+        self.assertIn("qwen evidence", str(ctx.exception))
+
+    def test_gpu_busy_leaves_manifest_byte_identical(self):
+        before = self.manifest_bytes()
+        self.enter(self.track.approved_patches())
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", return_value=["123 python"]
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(approve_compatible_runner_change=self.target).run()
+        self.assertIn("foreign GPU", str(ctx.exception))
+        self.assertEqual(self.manifest_bytes(), before)
+
+    def test_cli_requires_resume_and_retry_failed(self):
+        with self.assertRaises(SystemExit):
+            runner_mod.main(["--approve-compatible-runner-change", "a" * 40])
+        with self.assertRaises(SystemExit):
+            runner_mod.main([
+                "--resume", str(self.run_dir),
+                "--approve-compatible-runner-change", "a" * 40,
+            ])
+
+
+class CompatibilityRuntimeTest(PatchedTrackTest):
+    """A persisted record is re-audited against the target-commit baseline on resume."""
+
+    track_class = FakeApprovedRun
+
+    def setUp(self):
+        super().setUp()
+        self.run_dir = self.track.run_dir
+        self.target = FakeApprovedRun.TARGET
+        self.manifest_path = self.run_dir / "manifest.json"
+        self.enter(self.track.approved_patches())
+        self.assertEqual(
+            self.track.runner(
+                resume=self.run_dir, retry_failed=True,
+                approve_compatible_runner_change=self.target,
+            ).run(),
+            0,
+        )
+
+    def enter(self, patches):
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        for patcher in patches:
+            stack.enter_context(patcher)
+        return stack
+
+    def record(self) -> dict:
+        return json.loads(json.dumps(
+            runner_mod.read_json(self.manifest_path)["compatibility_deviations"][0]
+        ))
+
+    def write_record(self, record) -> None:
+        manifest = runner_mod.read_json(self.manifest_path)
+        manifest["compatibility_deviations"] = [record]
+        runner_mod.write_json_atomic(self.manifest_path, manifest)
+
+    def assert_refused(self, marker: str) -> str:
+        before = self.manifest_path.read_bytes()
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.track.runner(resume=self.run_dir, retry_failed=True).run()
+        message = str(ctx.exception)
+        self.assertIn(marker, message)
+        self.assertEqual(self.manifest_path.read_bytes(), before)
+        return message
+
+    def test_clean_later_resume_uses_baseline_not_manifest_bytes(self):
+        # the working manifest now carries the deviation and no longer matches the
+        # committed baseline byte-for-byte, but the immutable inputs still do
+        baseline = self.track.committed_blobs[
+            f"benchmarks/{runner_mod.TRACK}/{FakeApprovedRun.RUN_ID}/manifest.json"
+        ]
+        self.assertNotEqual(self.manifest_path.read_bytes(), baseline)
+        self.assertEqual(
+            self.track.runner(resume=self.run_dir, retry_failed=True).run(), 0
+        )
+
+    def test_every_record_security_field_is_recomputed(self):
+        cases = (
+            ("kind", lambda r: r.__setitem__("kind", "other"), "kind"),
+            ("id", lambda r: r.__setitem__("id", "forged"), "id"),
+            ("reason", lambda r: r.__setitem__("reason", "forged"), "reason"),
+            ("from", lambda r: r.__setitem__("from", "b" * 40), "from"),
+            ("to", lambda r: r.__setitem__("to", "b" * 40), "compatibility target"),
+            ("diff-sha", lambda r: r["diff"].__setitem__("sha256", "0" * 64), "diff"),
+            ("diff-bytes", lambda r: r["diff"].__setitem__("bytes", r["diff"]["bytes"] + 1), "diff"),
+            ("diff-paths", lambda r: r["diff"]["paths"].append("src/specialist/train.py"), "diff"),
+            ("semantic", lambda r: r["semantic_ids"]["src"].__setitem__("target", "d" * 40), "semantic_ids"),
+            ("current-python", lambda r: r["current"].__setitem__("python", "/usr/bin/other"), "current"),
+            ("current-config", lambda r: r["current"]["config_sha256"].__setitem__("01-qwen3-8b", "0" * 64), "current"),
+            ("retained", lambda r: r["retained_models"].append("02-ministral-3-8b-instruct"), "retained_models"),
+            ("max-attempts", lambda r: r.__setitem__("maximum_additional_attempts", 2), "maximum_additional_attempts"),
+            ("incident-error", lambda r: r["retry_exception"].__setitem__("error_sha256", "0" * 64), "retry_exception"),
+            ("incident-attempt", lambda r: r["retry_exception"].__setitem__("attempt", 2), "retry_exception"),
+            ("incident-log", lambda r: r["retry_exception"].__setitem__("log", "models/other.log"), "retry_exception"),
+            ("overlay-selection", lambda r: r["legacy_selection_overlays"]["01-qwen3-8b"].__setitem__("selection_sha256", "0" * 64), "legacy_selection_overlays"),
+            ("overlay-nested", lambda r: r["legacy_selection_overlays"]["01-qwen3-8b"]["nested"].__setitem__("selection_sha256", "0" * 64), "legacy_selection_overlays"),
+            ("overlay-pointer", lambda r: r["legacy_selection_overlays"]["01-qwen3-8b"].__setitem__("json_pointer", "/other"), "legacy_selection_overlays"),
+            ("missing-kind", lambda r: r.pop("kind"), "kind"),
+        )
+        original = self.record()
+        for label, mutate, marker in cases:
+            record = json.loads(json.dumps(original))
+            mutate(record)
+            self.write_record(record)
+            self.assert_refused(marker)
+
+    def test_record_evidence_keyset_is_exact(self):
+        selection_rel = "models/01-qwen3-8b/preflight/selection.json"
+        cases = (
+            ("extra", lambda r: r["qwen_evidence_sha256"].__setitem__("models/01-qwen3-8b/extra.json", "0" * 64), "keyset"),
+            ("missing", lambda r: r["qwen_evidence_sha256"].pop(selection_rel), "keyset"),
+            ("changed", lambda r: r["qwen_evidence_sha256"].__setitem__(selection_rel, "0" * 64), "qwen_evidence_sha256"),
+        )
+        for _label, mutate, marker in cases:
+            record = self.record()
+            mutate(record)
+            self.write_record(record)
+            self.assert_refused(marker)
+
+    def test_inserted_forged_record_refused(self):
+        record = self.record()
+        record["diff"]["sha256"] = "f" * 64
+        record["id"] = f"{runner_mod.APPROVED_RUN_ID}:{self.target}:{'f' * 12}"
+        self.write_record(record)
+        self.assert_refused("diff")
+
+    def test_relocked_modified_evidence_refused(self):
+        selection_rel = "models/01-qwen3-8b/preflight/selection.json"
+        path = self.run_dir / selection_rel
+        path.write_bytes(path.read_bytes() + b"\n")
+        record = self.record()
+        record["qwen_evidence_sha256"][selection_rel] = runner_mod.sha256_file(path)
+        self.write_record(record)
+        message = self.assert_refused("qwen evidence")
+        self.assertIn("differs from the target commit baseline", message)
+
+    def test_later_resume_reaudits_every_evidence_file(self):
+        qwen = runner_mod.EXPECTED_MODELS[0]
+        for relative in runner_mod.model_evidence_relative_paths(qwen):
+            path = self.run_dir / relative
+            original = path.read_bytes()
+            path.write_bytes(original + b"\n")
+            self.assert_refused("differs from the target commit baseline")
+            path.write_bytes(original)
+        log_path = self.run_dir / runner_mod.KNOWN_INCIDENT_LOG_REL
+        original_log = log_path.read_bytes()
+        log_path.write_bytes(original_log + b"\n")
+        self.assert_refused("incident log")
+        log_path.write_bytes(original_log)
+
+    def test_later_resume_immutable_manifest_inputs_refused(self):
+        cases = (
+            ("python", lambda m: m.__setitem__("python", "/usr/bin/other"), "committed baseline"),
+            ("environment", lambda m: m["environment"].__setitem__("transformers", "9.9.9"), "committed baseline"),
+            ("config", lambda m: m["config_sha256"].__setitem__("01-qwen3-8b", "0" * 64), "committed baseline"),
+            ("snapshot", lambda m: m["config_snapshot_sha256"].__setitem__("01-qwen3-8b", "0" * 64), "committed baseline"),
+            ("data", lambda m: m["data"]["splits"]["test"].__setitem__("sha256", "0" * 64), "committed baseline"),
+            ("gpu", lambda m: m["gpu"].__setitem__("total_gib", 99.0), "committed baseline"),
+            ("model", lambda m: m["models"][0].__setitem__("repo", "other/repo"), "committed baseline"),
+            ("run-id", lambda m: m.__setitem__("run_id", "19990101T000000Z"), "run id"),
+        )
+        for _label, mutate, marker in cases:
+            manifest = runner_mod.read_json(self.manifest_path)
+            mutate(manifest)
+            runner_mod.write_json_atomic(self.manifest_path, manifest)
+            self.assert_refused(marker)
+
+    def test_effective_commit_and_origin_refused_on_resume(self):
+        manifest = runner_mod.read_json(self.manifest_path)
+        manifest["effective_git_commit"] = "b" * 40
+        runner_mod.write_json_atomic(self.manifest_path, manifest)
+        self.assert_refused("effective_git_commit")
+
+        manifest = runner_mod.read_json(self.manifest_path)
+        manifest["effective_git_commit"] = self.target
+        manifest["git_commit"] = "a" * 40
+        runner_mod.write_json_atomic(self.manifest_path, manifest)
+        self.assert_refused("origin commit")
+
+    def run_info_path(self) -> Path:
+        return (
+            self.run_dir / "models" / runner_mod.KNOWN_INCIDENT_MODEL / "run_info.json"
+        )
+
+    def test_valid_runner_produced_attempt2_is_accepted(self):
+        run_info = runner_mod.read_json(self.run_info_path())
+        attempts = run_info["phases"]["preflight"]["attempts"]
+        self.assertEqual([entry["attempt"] for entry in attempts], [1, 2])
+        self.assertEqual(attempts[1]["status"], "ok")
+        self.assertEqual(
+            attempts[1]["retry"]["deviation"],
+            {"kind": runner_mod.COMPATIBILITY_RETRY_KIND, "id": self.record()["id"]},
+        )
+        self.assertEqual(
+            self.track.runner(resume=self.run_dir, retry_failed=True).run(), 0
+        )
+
+    def test_attempt1_tampering_after_approval_refused(self):
+        run_info = runner_mod.read_json(self.run_info_path())
+        run_info["phases"]["preflight"]["attempts"][0]["seconds"] = 99.9
+        runner_mod.write_json_atomic(self.run_info_path(), run_info)
+        self.assert_refused("attempt1 differs")
+        # a removed baseline attempt is equally refused
+        run_info = runner_mod.read_json(self.run_info_path())
+        run_info["phases"]["preflight"]["attempts"] = run_info["phases"]["preflight"]["attempts"][1:]
+        runner_mod.write_json_atomic(self.run_info_path(), run_info)
+        self.assert_refused("attempt1")
+
+    def test_attempt2_and_third_attempt_variants_refused(self):
+        original = self.run_info_path().read_bytes()
+
+        def case(mutate, marker):
+            run_info = json.loads(original)
+            mutate(run_info["phases"]["preflight"]["attempts"])
+            runner_mod.write_json_atomic(self.run_info_path(), run_info)
+            self.assert_refused(marker)
+            self.run_info_path().write_bytes(original)
+
+        case(lambda a: a.append(dict(a[1], attempt=3)), "third attempt")
+        case(lambda a: a[1].__setitem__("attempt", 3), "attempt2 metadata")
+        case(lambda a: a[1].__setitem__("status", "bogus"), "attempt2 status")
+        case(lambda a: a[1].pop("started"), "start time")
+        case(lambda a: a[1].pop("ended"), "end time")
+        case(lambda a: a[1]["retry"]["deviation"].__setitem__("id", "forged"), "approved compatibility retry")
+        case(lambda a: a[1]["retry"].pop("deviation"), "approved compatibility retry")
+        case(lambda a: a[1].pop("retry"), "approved compatibility retry")
+
+    def test_persisted_record_semantic_gate_refuses_before_mutation(self):
+        # The record is updated to be consistent with a target-blob-matching but
+        # semantically invalid Qwen acceptance.json; only the semantic gate can
+        # catch it, and nothing may be written before it fails.
+        rel = "models/01-qwen3-8b/acceptance.json"
+        acceptance = runner_mod.read_json(self.run_dir / rel)
+        acceptance["status"] = "failed"
+        data = (
+            json.dumps(acceptance, ensure_ascii=False, indent=2, default=str) + "\n"
+        ).encode("utf-8")
+        self.track.recommit(rel, data)
+        record = self.record()
+        record["qwen_evidence_sha256"][rel] = hashlib.sha256(data).hexdigest()
+        self.write_record(record)
+        message = self.assert_refused("qwen evidence")
+        self.assertIn("acceptance.json status", message)
 
 
 if __name__ == "__main__":

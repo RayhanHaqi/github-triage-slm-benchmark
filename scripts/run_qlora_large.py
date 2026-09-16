@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
@@ -114,6 +115,28 @@ VRAM_HEADROOM_MIN_GIB = 1.0
 VRAM_REPEAT_TOLERANCE_GIB = 0.25
 
 PHASES = ("preflight", "baseline", "train", "adapter_eval", "comparison", "acceptance", "cleanup")
+
+# Audited one-time compatible-runner continuation (Oracle-recommended).
+APPROVED_RUN_ID = "20260916T120019Z"
+APPROVED_ORIGIN = "385bbb957733e37d31627ff3f67e9931c95e6946"
+COMPATIBILITY_KIND = "compatible_runner_continuation"
+COMPATIBILITY_RETRY_KIND = "compatibility_retry_exception"
+COMPATIBILITY_REASON = (
+    "Runner-only fixes after the model2 preflight selection incident; "
+    "user approved retaining the accepted Qwen model."
+)
+COMPATIBILITY_RETAINED_MODELS = ("01-qwen3-8b",)
+APPROVED_DIFF_PATHS = ("scripts/run_qlora_large.py", "tests/test_qlora_runner.py")
+SEMANTIC_ID_PATHS = ("src", "configs/qlora-large", "pyproject.toml")
+LEGACY_OVERLAY_EFFECTIVE_SOURCE = "legacy_unrecorded"
+LEGACY_OVERLAY_REASON = "selection.json predates resolved_revision_source recording"
+LEGACY_OVERLAY_POINTER = "/resolved_revision_source"
+LEGACY_NESTED_POINTER = "/selection/resolved_revision_source"
+KNOWN_INCIDENT_MODEL = "02-ministral-3-8b-instruct"
+KNOWN_INCIDENT_PHASE = "preflight"
+KNOWN_INCIDENT_ERROR = "preflight: selection exit code 1 (not in the transient allowlist)"
+KNOWN_INCIDENT_LOG_REL = "models/02-ministral-3-8b-instruct/logs/selection-a1.log"
+KNOWN_INCIDENT_LOG_SHA256 = "b3a27a643b5b288eaee9dbd435c5acbb616163487b26b8185a2e4d378ba9994b"
 
 SYSTEM_PROMPT = (
     "Classify the GitHub issue into exactly one category: bug or feature-request. "
@@ -309,6 +332,10 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def sha256_str(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def read_json(path: str | Path) -> dict:
     with Path(path).open("r", encoding="utf-8") as f:
         return json.load(f)
@@ -443,12 +470,16 @@ def probe_git_status(project_root: str | Path) -> list[str]:
 
 
 def git_tree_problems(
-    porcelain_lines: list[str], allowed_untracked: tuple[str, ...] = ()
+    porcelain_lines: list[str],
+    allowed_prefixes: tuple[str, ...] = (),
+    *,
+    allow_tracked: bool = False,
 ) -> list[str]:
-    """Tracked changes are always dirty; untracked paths must be explicitly allowed.
+    """Tracked changes and untracked paths are fatal unless under an allowed prefix.
 
-    Callers pass the exact active run prefix (`benchmarks/qlora-large/<run-id>/`)
-    during a run/resume; new runs and dry-run allow no untracked paths at all.
+    New runs/dry-run pass no prefixes (fully clean tree). A resume passes the
+    exact active run prefix, where tracked or untracked status is tolerated for
+    the run's own files only; source/config/sibling-run dirt stays fatal.
     """
     problems = []
     for line in porcelain_lines:
@@ -457,17 +488,73 @@ def git_tree_problems(
             continue
         status = line[:2]
         raw_path = line[3:].strip().strip('"') if len(line) > 3 else ""
+        candidates = [part.strip().strip('"') for part in raw_path.split(" -> ")] if " -> " in raw_path else [raw_path]
+        allowed = bool(allowed_prefixes) and all(
+            any(candidate.startswith(tuple(allowed_prefixes)) for candidate in [path])
+            for path in candidates
+        )
         if status == "??":
-            if allowed_untracked and raw_path.startswith(tuple(allowed_untracked)):
+            if allowed:
                 continue
             problems.append(f"untracked path outside the active run: {raw_path}")
         else:
+            if allow_tracked and allowed:
+                continue
             problems.append(f"tracked change: {line}")
     return problems
 
 
 def probe_disk_free_gib(path: str | Path) -> float:
     return shutil.disk_usage(existing_ancestor(path)).free / 1024**3
+
+
+def probe_git_is_ancestor(project_root: str | Path, ancestor: str, descendant: str) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "merge-base", "--is-ancestor", ancestor, descendant],
+        capture_output=True, text=True, check=False,
+    )
+    return result.returncode == 0
+
+
+def probe_git_diff_paths(project_root: str | Path, old: str, new: str) -> list[str]:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "diff", "--name-only", f"{old}..{new}"],
+        capture_output=True, text=True, check=True,
+    )
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def probe_git_diff_binary(project_root: str | Path, old: str, new: str) -> bytes:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "diff", "--binary", "--full-index", "--no-ext-diff", old, new],
+        capture_output=True, check=True,
+    )
+    return result.stdout
+
+
+def probe_git_rev_parse(project_root: str | Path, spec: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "rev-parse", spec],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
+
+
+def probe_git_show(project_root: str | Path, spec: str) -> bytes:
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "show", spec],
+        capture_output=True, check=True,
+    )
+    return result.stdout
+
+
+def probe_git_file_oid(project_root: str | Path, path: str | Path) -> str:
+    """OID git would assign to a working file (clean filters, e.g. eol, applied)."""
+    result = subprocess.run(
+        ["git", "-C", str(project_root), "hash-object", str(path)],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
 
 
 def probe_gpu_identity() -> dict:
@@ -928,8 +1015,17 @@ def trainable_params_problems(train_metrics: dict, spec: ModelSpec) -> list[str]
 # preflight proof
 # --------------------------------------------------------------------------- #
 
-def selection_problems(selection: dict, spec: ModelSpec) -> list[str]:
-    """Exact identity/counts/lengths for a retained selection.json."""
+def selection_problems(
+    selection: dict, spec: ModelSpec, *, allow_legacy_source: bool = False
+) -> list[str]:
+    """Exact identity/counts/lengths for a retained selection.json.
+
+    `allow_legacy_source` is the audited logical overlay for the approved
+    legacy Qwen selection (missing `resolved_revision_source`): it passes only
+    when the rest of the identity/counts checks are exact; the effective source
+    is recorded as `legacy_unrecorded` in the audit only. Any wrong non-null
+    source value still fails.
+    """
     problems = []
     if selection.get("model") != spec.slug or selection.get("repo") != spec.repo:
         problems.append("selection metadata model/repo mismatch")
@@ -941,7 +1037,9 @@ def selection_problems(selection: dict, spec: ModelSpec) -> list[str]:
             f"pinned {spec.revision!r}"
         )
     revision_source = selection.get("resolved_revision_source")
-    if revision_source not in REVISION_SOURCES:
+    if revision_source is None and allow_legacy_source:
+        pass  # legacy_unrecorded overlay, still requires the exact SHA above
+    elif revision_source not in REVISION_SOURCES:
         problems.append(
             f"selection resolved revision source {revision_source!r} not in {REVISION_SOURCES}"
         )
@@ -1564,6 +1662,7 @@ def completed_model_problems(
     frozen: dict | None = None,
     *,
     require_cleanup: bool = True,
+    allow_legacy_source: bool = False,
 ) -> list[str]:
     """Truthful completed-model evidence, excluding deliberately deleted scratch.
 
@@ -1619,7 +1718,12 @@ def completed_model_problems(
         except (OSError, ValueError) as exc:
             problems.append(f"completed: unreadable preflight/selection.json: {exc}")
         else:
-            problems += [f"completed: {problem}" for problem in selection_problems(selection, spec)]
+            problems += [
+                f"completed: {problem}"
+                for problem in selection_problems(
+                    selection, spec, allow_legacy_source=allow_legacy_source
+                )
+            ]
 
     preflight_path = model_dir / "preflight" / "preflight.json"
     if not preflight_path.is_file():
@@ -1685,6 +1789,94 @@ def completed_model_problems(
         elif sha256_file(snapshot) != recorded:
             problems.append(f"completed: config.yaml digest != manifest for {spec.slug}")
     return problems
+
+
+def model_evidence_relative_paths(spec: ModelSpec) -> list[str]:
+    """Retained completion-required evidence, relative to the run directory."""
+    base = f"models/{spec.slug}"
+    return [
+        f"{base}/run_info.json",
+        f"{base}/acceptance.json",
+        f"{base}/cleanup.json",
+        f"{base}/config.yaml",
+        f"{base}/preflight/selection.json",
+        f"{base}/preflight/preflight.json",
+        f"{base}/workspace/baseline_metrics.json",
+        f"{base}/workspace/train_metrics.json",
+        f"{base}/workspace/finetuned_metrics.json",
+        f"{base}/workspace/baseline_predictions.csv",
+        f"{base}/workspace/finetuned_predictions.csv",
+        f"{base}/workspace/comparison.json",
+    ]
+
+
+# --------------------------------------------------------------------------- #
+# audited continuation baseline helpers
+# --------------------------------------------------------------------------- #
+
+def run_repo_dir(run_id: str = APPROVED_RUN_ID) -> str:
+    """Repo-relative directory of the audited run inside the benchmark track."""
+    return f"benchmarks/{TRACK}/{run_id}"
+
+
+def baseline_manifest_inputs(manifest: dict) -> dict:
+    """Manifest inputs that must stay identical to the committed baseline.
+
+    Mutable progress fields (status/finished_at/last_error/latest_written and the
+    per-model status/failure) are excluded; per-model identity and the retry cap
+    are not.
+    """
+    inputs = {
+        key: manifest.get(key)
+        for key in (
+            "track", "run_id", "git_commit", "python", "environment", "gpu",
+            "config_sha256", "data", "vram",
+        )
+    }
+    inputs["config_snapshot_sha256"] = manifest.get("config_snapshot_sha256")
+    inputs["models"] = [
+        {key: entry.get(key) for key in ("index", "slug", "repo", "revision", "kind", "run_info")}
+        for entry in manifest.get("models") or []
+    ]
+    return inputs
+
+
+def manifest_input_problems(current: dict, baseline: dict) -> list[str]:
+    """Immutable manifest inputs must match the target-commit baseline manifest."""
+    problems: list[str] = []
+    base, curr = baseline_manifest_inputs(baseline), baseline_manifest_inputs(current)
+    for key in base:
+        if key == "config_snapshot_sha256":
+            continue
+        if curr[key] != base[key]:
+            problems.append(f"manifest {key} differs from the committed baseline")
+    base_snapshots = base["config_snapshot_sha256"]
+    current_snapshots = curr["config_snapshot_sha256"]
+    if not isinstance(base_snapshots, dict) or not isinstance(current_snapshots, dict):
+        problems.append("manifest config_snapshot_sha256 is not an object")
+    else:
+        for slug, digest in base_snapshots.items():
+            if current_snapshots.get(slug) != digest:
+                problems.append(
+                    f"manifest config_snapshot_sha256[{slug}] differs from the committed baseline"
+                )
+    return problems
+
+
+def evidence_content_matches(
+    project_root: str | Path, target: str, repo_relative: str, working_path: str | Path
+) -> bool:
+    """Working content equals the target-commit blob under git's clean filters.
+
+    Uses the same object identity as `git add` (so `.gitattributes` eol
+    normalization is honoured) while any real content edit changes the OID.
+    """
+    try:
+        return probe_git_file_oid(project_root, working_path) == probe_git_rev_parse(
+            project_root, f"{target}:{repo_relative}"
+        )
+    except Exception:
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -2074,6 +2266,7 @@ class Runner:
         dry_run: bool = False,
         resume: str | Path | None = None,
         retry_failed: bool = False,
+        approve_compatible_runner_change: str | None = None,
         out=print,
     ):
         self.project_root = _resolved(project_root)
@@ -2085,6 +2278,10 @@ class Runner:
         self.dry_run = dry_run
         self.resume = resume
         self.retry_failed = retry_failed
+        self.approved_target = approve_compatible_runner_change
+        self.compatibility: dict | None = None
+        self._resuming = False
+        self._manifest_writable = False
         self.out = out
         self.run_dir: Path | None = None
         self.manifest: dict | None = None
@@ -2143,15 +2340,26 @@ class Runner:
 
         if require_clean_git:
             dirty = probe_git_status(self.project_root)
-            allowed_untracked = (
-                (f"benchmarks/{TRACK}/{self.run_dir.name}/",) if self.run_dir is not None else ()
+            active_prefixes = (
+                (f"benchmarks/{TRACK}/{self.run_dir.name}/",)
+                if self.run_dir is not None
+                else ()
             )
-            problems += git_tree_problems(dirty, allowed_untracked=allowed_untracked)
+            problems += git_tree_problems(
+                dirty,
+                allowed_prefixes=active_prefixes,
+                allow_tracked=self._resuming,
+            )
             if manifest is not None:
                 head = probe_git_head(self.project_root)
-                if manifest.get("git_commit") != head:
+                expected_commit = (
+                    (self.compatibility or {}).get("to")
+                    or manifest.get("effective_git_commit")
+                    or manifest.get("git_commit")
+                )
+                if expected_commit != head:
                     problems.append(
-                        f"git commit {head} != run commit {manifest.get('git_commit')}"
+                        f"git commit {head} != run commit {expected_commit}"
                     )
 
         for spec in EXPECTED_MODELS:
@@ -2176,6 +2384,18 @@ class Runner:
                     )
 
         problems += validate_namespace(self.root, self.project_root)
+
+        if self.compatibility and self.run_dir is not None:
+            locked = self.compatibility.get("locked_evidence") or {}
+            target = self.compatibility.get("to")
+            for relative in locked:
+                path = self.run_dir / relative
+                if not path.is_file():
+                    problems.append(f"locked Qwen evidence missing: {relative}")
+                elif not isinstance(target, str) or not evidence_content_matches(
+                    self.project_root, target, f"{run_repo_dir()}/{relative}", path
+                ):
+                    problems.append(f"locked Qwen evidence changed: {relative}")
 
         if problems:
             raise RunnerError("invariant check failed:\n  - " + "\n  - ".join(problems))
@@ -2224,6 +2444,582 @@ class Runner:
                 "refusing to continue"
             )
 
+    # -- audited compatible-runner continuation ----------------------------- #
+
+    def _legacy_model(self, spec: ModelSpec) -> bool:
+        return bool(self.compatibility) and spec.slug in (
+            self.compatibility.get("legacy_models") or ()
+        )
+
+    def _attempt_matches_exception(self, last: dict, exception: dict) -> bool:
+        # The recorded incident is attempt 1 only; a retry attempt never matches.
+        if last.get("attempt") != 1:
+            return False
+        expected_error = exception.get("error")
+        if not isinstance(expected_error, str) or last.get("error") != expected_error:
+            return False
+        if sha256_str(expected_error) != exception.get("error_sha256"):
+            return False
+        recorded_log = last.get("log")
+        if not recorded_log:
+            return False
+        expected_log = _resolved(self.run_dir / str(exception.get("log") or ""))
+        if _resolved(recorded_log) != expected_log or not expected_log.is_file():
+            return False
+        return sha256_file(expected_log) == exception.get("log_sha256")
+
+    def _working_attempt_problems(
+        self, working: dict, baseline: dict, target: str, diff_sha: str | None
+    ) -> list[str]:
+        """Working model2 attempts must stay anchored to the baseline incident.
+
+        Attempt 1 must equal the target-commit baseline attempt exactly. At most
+        one runner-produced retry (attempt 2) may follow, and it must carry the
+        exact compatibility retry deviation id; a third attempt is never allowed.
+        This runs on every resume, so tampering with the tracked active-run
+        run_info after approval is detected even when a retry exists.
+        """
+        problems: list[str] = []
+        base_attempts = ((baseline.get("phases") or {}).get("preflight") or {}).get(
+            "attempts"
+        )
+        working_attempts = ((working.get("phases") or {}).get("preflight") or {}).get(
+            "attempts"
+        )
+        if not isinstance(base_attempts, list) or not base_attempts:
+            problems.append("baseline model2 attempts are not a non-empty list")
+            return problems
+        if not isinstance(working_attempts, list) or not working_attempts:
+            problems.append("working model2 attempts are not a non-empty list")
+            return problems
+        if len(working_attempts) > 2:
+            problems.append(
+                f"model2 preflight has {len(working_attempts)} attempts; "
+                "a third attempt is not allowed"
+            )
+        if working_attempts[0] != base_attempts[0]:
+            problems.append("model2 attempt1 differs from the target-commit baseline")
+        if len(working_attempts) >= 2:
+            attempt2 = working_attempts[1]
+            expected_id = (
+                f"{APPROVED_RUN_ID}:{target}:{diff_sha[:12]}"
+                if isinstance(diff_sha, str)
+                else None
+            )
+            if not isinstance(attempt2, dict) or attempt2.get("attempt") != 2:
+                problems.append("model2 attempt2 metadata is not a well-formed retry")
+            else:
+                if attempt2.get("status") not in ("running", "ok", "failed"):
+                    problems.append(
+                        f"model2 attempt2 status {attempt2.get('status')!r} is malformed"
+                    )
+                if not isinstance(attempt2.get("started"), str) or not attempt2.get("started"):
+                    problems.append("model2 attempt2 start time missing")
+                if attempt2.get("status") in ("ok", "failed") and not (
+                    isinstance(attempt2.get("ended"), str) and attempt2.get("ended")
+                ):
+                    problems.append("model2 attempt2 end time missing")
+                retry = attempt2.get("retry")
+                deviation = retry.get("deviation") if isinstance(retry, dict) else None
+                if expected_id is None or deviation != {
+                    "kind": COMPATIBILITY_RETRY_KIND,
+                    "id": expected_id,
+                }:
+                    problems.append(
+                        "model2 attempt2 is not the approved compatibility retry"
+                    )
+        return problems
+
+    def _compatibility_blob(
+        self, target: str, relative: str, problems: list[str], label: str
+    ) -> bytes | None:
+        """Bytes of one target-commit blob, or None with a recorded problem."""
+        repo_path = f"{run_repo_dir()}/{relative}"
+        try:
+            return probe_git_show(self.project_root, f"{target}:{repo_path}")
+        except Exception as exc:
+            problems.append(
+                f"{label}: cannot read target-commit blob {repo_path}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+
+    def _parsed_compatibility_blob(
+        self, target: str, relative: str, problems: list[str], label: str
+    ) -> dict | None:
+        blob = self._compatibility_blob(target, relative, problems, label)
+        if blob is None:
+            return None
+        try:
+            parsed = json.loads(blob.decode("utf-8"))
+        except ValueError as exc:
+            problems.append(f"{label} is not valid JSON: {exc}")
+            return None
+        if not isinstance(parsed, dict):
+            problems.append(f"{label} is not a JSON object")
+            return None
+        return parsed
+
+    def _compatibility_expectations(self, run_dir: Path, target: str) -> tuple[dict, list[str]]:
+        """Recompute every audited approval value from the target-commit baseline.
+
+        Read-only. The returned dict excludes `id`, `approved_at` and `reason`,
+        which callers derive deterministically. Every retained evidence file must
+        match its target-commit blob (git content identity, so `.gitattributes`
+        eol normalization is honoured while any real edit changes the OID), and
+        the overlay/incident bindings come from the committed baseline artifacts,
+        never from the mutable record.
+        """
+        problems: list[str] = []
+        run_prefix = run_repo_dir()
+        expected: dict = {
+            "diff": {
+                "format": "git diff --binary --full-index --no-ext-diff",
+                "sha256": None,
+                "bytes": 0,
+                "paths": [],
+            },
+            "semantic_ids": {},
+            "current": {},
+            "retained_models": list(COMPATIBILITY_RETAINED_MODELS),
+            "qwen_evidence_sha256": {},
+            "legacy_selection_overlays": {},
+            "retry_exception": {},
+        }
+
+        try:
+            paths = sorted(probe_git_diff_paths(self.project_root, APPROVED_ORIGIN, target))
+        except Exception as exc:
+            problems.append(f"git diff paths probe failed: {type(exc).__name__}: {exc}")
+            paths = []
+        disallowed = [
+            path for path in paths
+            if path not in APPROVED_DIFF_PATHS and not path.startswith(run_prefix + "/")
+        ]
+        if disallowed:
+            problems.append(f"diff touches disallowed paths: {disallowed}")
+        try:
+            diff_raw = probe_git_diff_binary(self.project_root, APPROVED_ORIGIN, target)
+        except Exception as exc:
+            problems.append(f"git diff bytes probe failed: {type(exc).__name__}: {exc}")
+        else:
+            expected["diff"] = {
+                "format": "git diff --binary --full-index --no-ext-diff",
+                "sha256": hashlib.sha256(diff_raw).hexdigest(),
+                "bytes": len(diff_raw),
+                "paths": paths,
+            }
+
+        for path in SEMANTIC_ID_PATHS:
+            try:
+                origin_id = probe_git_rev_parse(self.project_root, f"{APPROVED_ORIGIN}:{path}")
+                target_id = probe_git_rev_parse(self.project_root, f"{target}:{path}")
+            except Exception as exc:
+                problems.append(
+                    f"semantic id probe failed for {path}: {type(exc).__name__}: {exc}"
+                )
+                continue
+            expected["semantic_ids"][path] = {
+                "origin": origin_id,
+                "target": target_id,
+                "match": origin_id == target_id,
+            }
+            if origin_id != target_id:
+                problems.append(f"semantic id differs for {path}: {origin_id} != {target_id}")
+
+        baseline: dict | None = None
+        baseline_bytes = self._compatibility_blob(
+            target, "manifest.json", problems, "baseline manifest"
+        )
+        if baseline_bytes is not None:
+            try:
+                baseline = json.loads(baseline_bytes.decode("utf-8"))
+            except ValueError as exc:
+                problems.append(f"baseline manifest is not valid JSON: {exc}")
+        if isinstance(baseline, dict):
+            if baseline.get("run_id") != APPROVED_RUN_ID:
+                problems.append(
+                    f"baseline manifest run id {baseline.get('run_id')!r} != {APPROVED_RUN_ID!r}"
+                )
+            if baseline.get("git_commit") != APPROVED_ORIGIN:
+                problems.append(
+                    f"baseline manifest origin {baseline.get('git_commit')!r} != {APPROVED_ORIGIN}"
+                )
+            expected["current"] = {
+                key: baseline.get(key)
+                for key in ("config_sha256", "data", "environment", "python")
+            }
+            for key, value in expected["current"].items():
+                if value is None:
+                    problems.append(f"baseline manifest has no {key}")
+            if self.manifest is not None:
+                problems += manifest_input_problems(self.manifest, baseline)
+
+        qwen = spec_by_slug(COMPATIBILITY_RETAINED_MODELS[0])
+
+        # Every retained evidence path: working content == target-commit blob.
+        for relative in model_evidence_relative_paths(qwen):
+            working = run_dir / relative
+            if not working.is_file():
+                problems.append(f"qwen evidence missing: {relative}")
+                continue
+            blob = self._compatibility_blob(target, relative, problems, "qwen evidence")
+            if blob is None:
+                continue
+            if not evidence_content_matches(
+                self.project_root, target, f"{run_prefix}/{relative}", working
+            ):
+                problems.append(
+                    f"qwen evidence {relative} differs from the target commit baseline"
+                )
+                continue
+            expected["qwen_evidence_sha256"][relative] = hashlib.sha256(blob).hexdigest()
+
+        # Legacy overlay: standalone source pointer AND its nested copy, both
+        # effective `legacy_unrecorded` and both pinned to target-commit blobs.
+        selection_rel = f"models/{qwen.slug}/preflight/selection.json"
+        preflight_rel = f"models/{qwen.slug}/preflight/preflight.json"
+        selection = self._parsed_compatibility_blob(
+            target, selection_rel, problems, "legacy selection"
+        )
+        preflight = self._parsed_compatibility_blob(
+            target, preflight_rel, problems, "legacy preflight"
+        )
+        if isinstance(selection, dict):
+            if selection.get("resolved_revision_source") is not None:
+                problems.append("legacy selection records a resolved_revision_source")
+            nested_selection = preflight.get("selection") if isinstance(preflight, dict) else None
+            nested_match = isinstance(nested_selection, dict) and nested_selection == selection
+            if isinstance(preflight, dict):
+                if not isinstance(nested_selection, dict):
+                    problems.append("legacy preflight.json has no nested selection object")
+                else:
+                    if nested_selection.get("resolved_revision_source") is not None:
+                        problems.append("nested legacy selection records a resolved_revision_source")
+                    if not nested_match:
+                        problems.append("nested legacy selection does not match the standalone selection")
+            expected["legacy_selection_overlays"] = {
+                qwen.slug: {
+                    "path": selection_rel,
+                    "json_pointer": LEGACY_OVERLAY_POINTER,
+                    "effective_source": LEGACY_OVERLAY_EFFECTIVE_SOURCE,
+                    "reason": LEGACY_OVERLAY_REASON,
+                    "selection_sha256": expected["qwen_evidence_sha256"].get(selection_rel),
+                    "nested": {
+                        "path": preflight_rel,
+                        "json_pointer": LEGACY_NESTED_POINTER,
+                        "effective_source": LEGACY_OVERLAY_EFFECTIVE_SOURCE,
+                        "selection_sha256": expected["qwen_evidence_sha256"].get(preflight_rel),
+                        "selection_matches_standalone": nested_match,
+                    },
+                }
+            }
+
+        # Exact known incident, read from committed baseline artifacts plus the
+        # pinned log bytes; no marker/prefix matching.
+        run_info_rel = f"models/{KNOWN_INCIDENT_MODEL}/run_info.json"
+        model2_run_info = self._parsed_compatibility_blob(
+            target, run_info_rel, problems, "incident run_info"
+        )
+        if isinstance(baseline, dict):
+            model2 = next(
+                (
+                    entry for entry in baseline.get("models") or []
+                    if entry.get("slug") == KNOWN_INCIDENT_MODEL
+                ),
+                None,
+            )
+            if not isinstance(model2, dict):
+                problems.append(f"baseline manifest has no {KNOWN_INCIDENT_MODEL} entry")
+            else:
+                failure = model2.get("failure") or {}
+                if model2.get("status") != "failed":
+                    problems.append(f"baseline model2 status {model2.get('status')!r} != 'failed'")
+                if (
+                    failure.get("phase") != KNOWN_INCIDENT_PHASE
+                    or failure.get("error") != KNOWN_INCIDENT_ERROR
+                    or failure.get("retryable") is not False
+                ):
+                    problems.append("baseline manifest model2 failure is not the known incident")
+        if isinstance(model2_run_info, dict):
+            failure = model2_run_info.get("failure") or {}
+            if model2_run_info.get("status") != "failed":
+                problems.append(
+                    f"incident run_info status {model2_run_info.get('status')!r} != 'failed'"
+                )
+            if (
+                failure.get("phase") != KNOWN_INCIDENT_PHASE
+                or failure.get("error") != KNOWN_INCIDENT_ERROR
+                or failure.get("retryable") is not False
+            ):
+                problems.append("incident run_info top-level failure is not the known incident")
+            phases = model2_run_info.get("phases") or {}
+            preflight_phase = phases.get("preflight") or {}
+            if preflight_phase.get("status") != "failed":
+                problems.append(
+                    f"incident preflight status {preflight_phase.get('status')!r} != 'failed'"
+                )
+            attempts = preflight_phase.get("attempts") or []
+            if len(attempts) != 1:
+                problems.append(f"model2 preflight attempts {len(attempts)} != 1")
+            else:
+                attempt = attempts[0]
+                if attempt.get("attempt") != 1:
+                    problems.append(f"model2 attempt number {attempt.get('attempt')!r} != 1")
+                if attempt.get("status") != "failed":
+                    problems.append(
+                        f"model2 attempt1 status {attempt.get('status')!r} != 'failed'"
+                    )
+                if attempt.get("retryable") is not False:
+                    problems.append(
+                        f"model2 attempt1 retryable {attempt.get('retryable')!r} != False"
+                    )
+                if attempt.get("error") != KNOWN_INCIDENT_ERROR:
+                    problems.append("model2 attempt1 error is not the known incident")
+                recorded_log = attempt.get("log")
+                if (
+                    not isinstance(recorded_log, str)
+                    or _resolved(recorded_log) != _resolved(run_dir / KNOWN_INCIDENT_LOG_REL)
+                ):
+                    problems.append("model2 attempt1 log path is not the pinned incident log")
+            for phase in PHASES:
+                if phase != "preflight" and (phases.get(phase) or {}).get("attempts"):
+                    problems.append(f"model2 has unexpected {phase} attempts")
+            expected["retry_exception"] = {
+                "model": KNOWN_INCIDENT_MODEL,
+                "phase": KNOWN_INCIDENT_PHASE,
+                "attempt": 1,
+                "original_retryable": False,
+                "error": KNOWN_INCIDENT_ERROR,
+                "error_sha256": sha256_str(KNOWN_INCIDENT_ERROR),
+                "log": KNOWN_INCIDENT_LOG_REL,
+                "log_sha256": KNOWN_INCIDENT_LOG_SHA256,
+            }
+            # Every resume: the working attempts must still be the baseline
+            # attempt 1 plus at most one runner-produced approved retry.
+            working_path = run_dir / run_info_rel
+            working_run_info: dict | None = None
+            if not working_path.is_file():
+                problems.append(f"working model2 run_info missing: {run_info_rel}")
+            else:
+                try:
+                    working_run_info = read_json(working_path)
+                except (OSError, ValueError) as exc:
+                    problems.append(f"working model2 run_info unreadable: {exc}")
+            if isinstance(working_run_info, dict):
+                problems += self._working_attempt_problems(
+                    working_run_info, model2_run_info, target, expected["diff"]["sha256"]
+                )
+        log_path = run_dir / KNOWN_INCIDENT_LOG_REL
+        if not log_path.is_file():
+            problems.append(f"incident log missing: {KNOWN_INCIDENT_LOG_REL}")
+        elif sha256_file(log_path) != KNOWN_INCIDENT_LOG_SHA256:
+            problems.append("incident log does not match the pinned SHA")
+        return expected, problems
+
+    def _incident_artifact_problems(self, run_dir: Path) -> list[str]:
+        """The incident state retains no model2 preflight workspace or artifacts."""
+        pre_dir = run_dir / "models" / KNOWN_INCIDENT_MODEL / "preflight"
+        if not pre_dir.exists():
+            return []
+        if not pre_dir.is_dir():
+            return [f"model2 preflight path is not a directory: {pre_dir}"]
+        problems = []
+        for entry in sorted(pre_dir.iterdir()):
+            if entry.name in ("selection.json", "preflight.json") or entry.name.startswith("attempt-"):
+                problems.append(f"model2 has unexpected preflight artifact: {entry.name}")
+        return problems
+
+    def _compatibility_approval(self, run_dir: Path, manifest: dict, target: str) -> dict:
+        """All read-only checks before any manifest mutation."""
+        problems: list[str] = []
+        if not SHA40_RE.fullmatch(target or ""):
+            problems.append(f"target {target!r} is not a full 40-lowercase-hex SHA")
+        if manifest.get("run_id") != APPROVED_RUN_ID:
+            problems.append(
+                f"run id {manifest.get('run_id')!r} != approved {APPROVED_RUN_ID!r}"
+            )
+        if manifest.get("git_commit") != APPROVED_ORIGIN:
+            problems.append(
+                f"origin commit {manifest.get('git_commit')!r} != approved {APPROVED_ORIGIN}"
+            )
+        if manifest.get("effective_git_commit"):
+            problems.append("manifest already records an effective commit")
+        if manifest.get("compatibility_deviations"):
+            problems.append("manifest already records a compatibility deviation")
+
+        head = probe_git_head(self.project_root)
+        if head != target:
+            problems.append(f"current HEAD {head} != requested target {target!r}")
+        target_ok = SHA40_RE.fullmatch(target or "") is not None
+        if (
+            target_ok
+            and manifest.get("git_commit") == APPROVED_ORIGIN
+            and not probe_git_is_ancestor(self.project_root, APPROVED_ORIGIN, target)
+        ):
+            problems.append(f"origin {APPROVED_ORIGIN} is not an ancestor of target {target}")
+
+        # The mutable run state must be pinned to the target commit before the
+        # audit runs: manifest bytes byte-for-byte and the incident run_info.
+        expected: dict = {}
+        if target_ok:
+            baseline_bytes = self._compatibility_blob(
+                target, "manifest.json", problems, "baseline manifest"
+            )
+            if (
+                baseline_bytes is not None
+                and baseline_bytes != (run_dir / "manifest.json").read_bytes()
+            ):
+                problems.append("working manifest bytes differ from the target commit baseline")
+            run_info_rel = f"models/{KNOWN_INCIDENT_MODEL}/run_info.json"
+            expected_run_info = self._compatibility_blob(
+                target, run_info_rel, problems, "incident run_info"
+            )
+            working_run_info = run_dir / run_info_rel
+            if expected_run_info is not None and (
+                not working_run_info.is_file()
+                or working_run_info.read_bytes() != expected_run_info
+            ):
+                problems.append(
+                    "working model2 run_info bytes differ from the target commit baseline"
+                )
+            expected, expectation_problems = self._compatibility_expectations(run_dir, target)
+            problems += expectation_problems
+
+        completed = [
+            model["slug"] for model in manifest["models"] if model["status"] == "completed"
+        ]
+        if completed != list(COMPATIBILITY_RETAINED_MODELS):
+            problems.append(
+                f"completed models {completed!r} != {list(COMPATIBILITY_RETAINED_MODELS)!r}"
+            )
+        # Semantic completion gate, with the validated legacy overlay as the only
+        # logical exception. Must pass before any manifest/run file mutation.
+        qwen = spec_by_slug(COMPATIBILITY_RETAINED_MODELS[0])
+        qwen_problems = completed_model_problems(
+            qwen, run_dir, manifest, allow_legacy_source=True
+        )
+        problems += [f"qwen evidence: {problem}" for problem in qwen_problems]
+        problems += self._incident_artifact_problems(run_dir)
+
+        if problems:
+            raise RunnerError(
+                "compatibility approval refused:\n  - " + "\n  - ".join(problems)
+            )
+        diff_sha = expected["diff"]["sha256"]
+        return {
+            "id": f"{APPROVED_RUN_ID}:{target}:{diff_sha[:12]}",
+            "kind": COMPATIBILITY_KIND,
+            "reason": COMPATIBILITY_REASON,
+            "from": APPROVED_ORIGIN,
+            "to": target,
+            "approved_at": utc_now(),
+            "diff": expected["diff"],
+            "semantic_ids": expected["semantic_ids"],
+            "current": expected["current"],
+            "retained_models": expected["retained_models"],
+            "qwen_evidence_sha256": expected["qwen_evidence_sha256"],
+            "legacy_selection_overlays": expected["legacy_selection_overlays"],
+            "retry_exception": expected["retry_exception"],
+            "maximum_additional_attempts": 1,
+        }
+
+    def _runtime_compatibility(self, record: dict) -> dict:
+        """Recompute every security-critical approval value and require exact equality.
+
+        A persisted record is trusted only while it still equals what the target
+        commit baseline plus the working evidence imply: approved run id, origin,
+        target/HEAD/effective commit, ancestry, diff path set/hash/bytes,
+        semantic ids, config/data/environment/python identity, retained-model
+        and evidence path keyset with exact hashes, the two-pointer legacy
+        overlay, and the exact retry exception.
+        """
+        problems: list[str] = []
+        if not isinstance(record, dict):
+            raise RunnerError("compatibility record invalid:\n  - record is not an object")
+        manifest = self.manifest or {}
+        if record.get("kind") != COMPATIBILITY_KIND:
+            problems.append(f"unexpected compatibility kind {record.get('kind')!r}")
+        if manifest.get("run_id") != APPROVED_RUN_ID:
+            problems.append(
+                f"run id {manifest.get('run_id')!r} != approved {APPROVED_RUN_ID!r}"
+            )
+        if manifest.get("git_commit") != APPROVED_ORIGIN:
+            problems.append(
+                f"origin commit {manifest.get('git_commit')!r} != approved {APPROVED_ORIGIN}"
+            )
+        # Semantic completion gate with the validated legacy overlay as the only
+        # logical exception; runs on every persisted-record resume before any
+        # manifest/run file mutation.
+        qwen = spec_by_slug(COMPATIBILITY_RETAINED_MODELS[0])
+        qwen_problems = completed_model_problems(
+            qwen, self.run_dir, manifest, allow_legacy_source=True
+        )
+        problems += [f"qwen evidence: {problem}" for problem in qwen_problems]
+        target = record.get("to")
+        if not isinstance(target, str) or not SHA40_RE.fullmatch(target):
+            problems.append(
+                f"compatibility target {target!r} is not a full 40-lowercase-hex SHA"
+            )
+        else:
+            head = probe_git_head(self.project_root)
+            if target != head:
+                problems.append(f"compatibility target {target!r} != current HEAD {head!r}")
+            if manifest.get("effective_git_commit") != target:
+                problems.append("manifest effective_git_commit != compatibility target")
+            if manifest.get("git_commit") == APPROVED_ORIGIN and not probe_git_is_ancestor(
+                self.project_root, APPROVED_ORIGIN, target
+            ):
+                problems.append(f"origin {APPROVED_ORIGIN} is not an ancestor of target {target}")
+            expected, expectation_problems = self._compatibility_expectations(
+                self.run_dir, target
+            )
+            problems += expectation_problems
+            if not expectation_problems:
+                expected["id"] = f"{APPROVED_RUN_ID}:{target}:{expected['diff']['sha256'][:12]}"
+                expected["kind"] = COMPATIBILITY_KIND
+                expected["reason"] = COMPATIBILITY_REASON
+                expected["from"] = APPROVED_ORIGIN
+                expected["to"] = target
+                expected["maximum_additional_attempts"] = 1
+                for field in (
+                    "kind", "id", "reason", "from", "to", "diff", "semantic_ids",
+                    "current", "retained_models", "qwen_evidence_sha256",
+                    "legacy_selection_overlays", "retry_exception",
+                    "maximum_additional_attempts",
+                ):
+                    if record.get(field) != expected.get(field):
+                        problems.append(
+                            f"compatibility record {field} does not match the audited baseline"
+                        )
+                if not isinstance(record.get("approved_at"), str) or not record.get("approved_at"):
+                    problems.append("compatibility record approved_at missing")
+                evidence = record.get("qwen_evidence_sha256")
+                if isinstance(evidence, dict) and set(evidence) != set(
+                    expected["qwen_evidence_sha256"]
+                ):
+                    problems.append("compatibility record evidence path keyset does not match")
+                overlays = record.get("legacy_selection_overlays")
+                if isinstance(overlays, dict) and set(overlays) != {
+                    COMPATIBILITY_RETAINED_MODELS[0]
+                }:
+                    problems.append("compatibility record overlay keyset does not match")
+        if problems:
+            raise RunnerError(
+                "compatibility record invalid:\n  - " + "\n  - ".join(problems)
+            )
+        return self._compatibility_runtime_view(record)
+
+    def _compatibility_runtime_view(self, record: dict) -> dict:
+        """Runtime behavior derived from a record that passed exact validation."""
+        return {
+            "to": record["to"],
+            "id": record.get("id"),
+            "locked_evidence": record["qwen_evidence_sha256"],
+            "legacy_models": tuple(record["legacy_selection_overlays"]),
+            "retry_exception": record["retry_exception"],
+        }
+
     # -- run lifecycle ------------------------------------------------------ #
 
     def run(self) -> int:
@@ -2242,6 +3038,9 @@ class Runner:
 
     def _mark_aborted(self, reason: str) -> None:
         if self.manifest is None or self.run_dir is None:
+            return
+        if not self._manifest_writable:
+            # Pre-check resume refusals must leave manifest/run files byte-identical.
             return
         self._normalize_attempts_on_abort(reason)
         manifest = self.manifest
@@ -2349,6 +3148,7 @@ class Runner:
         }
         self.manifest = manifest
         self._persist_manifest()
+        self._manifest_writable = True
         self.out(f"Run directory: {self.run_dir}")
 
         for spec in EXPECTED_MODELS:
@@ -2390,23 +3190,52 @@ class Runner:
             raise RunnerError(f"manifest track {manifest.get('track')!r} != {TRACK!r}")
         self.run_dir = run_dir
         self.manifest = manifest
-        manifest["finished_at"] = None
-        manifest["last_error"] = None
-        self._persist_manifest()
+        self._resuming = True
+
+        # All checks happen before any manifest/run-file mutation.
+        pending_record = None
+        existing = manifest.get("compatibility_deviations") or []
+        if self.approved_target is not None:
+            if existing:
+                raise RunnerError(
+                    "manifest already records a compatibility deviation; refusing a second one"
+                )
+            pending_record = self._compatibility_approval(
+                run_dir, manifest, self.approved_target
+            )
+            self.compatibility = self._compatibility_runtime_view(pending_record)
+        elif existing:
+            if len(existing) != 1:
+                raise RunnerError(
+                    f"manifest records {len(existing)} compatibility deviations; expected one"
+                )
+            self.compatibility = self._runtime_compatibility(existing[0])
 
         summary = self._invariant_check(manifest=manifest, require_clean_git=True)
         self.gpu = summary["gpu"]
+
+        # Checks passed: now clear stale fields and persist the approval atomically.
+        manifest["finished_at"] = None
+        manifest["last_error"] = None
+        if pending_record is not None:
+            manifest["effective_git_commit"] = pending_record["to"]
+            manifest["compatibility_deviations"] = [pending_record]
+        self._persist_manifest()
+        self._manifest_writable = True
         self.out(f"Resuming run: {run_dir} (status={manifest.get('status')})")
 
         for spec in EXPECTED_MODELS:
             entry = self._manifest_model(spec)
             if entry["status"] == "completed":
-                problems = completed_model_problems(spec, run_dir, manifest)
+                legacy = self._legacy_model(spec)
+                problems = completed_model_problems(
+                    spec, run_dir, manifest, allow_legacy_source=legacy
+                )
                 if not problems:
                     self.out(f"[{spec.slug}] completed; skipped")
                     continue
                 base_problems = completed_model_problems(
-                    spec, run_dir, manifest, require_cleanup=False
+                    spec, run_dir, manifest, require_cleanup=False, allow_legacy_source=legacy
                 )
                 if base_problems:
                     path = run_dir / "models" / spec.slug / "run_info.json"
@@ -2466,7 +3295,9 @@ class Runner:
         return 0
 
     def _require_completed_model(self, spec: ModelSpec, manifest: dict) -> None:
-        problems = completed_model_problems(spec, self.run_dir, manifest)
+        problems = completed_model_problems(
+            spec, self.run_dir, manifest, allow_legacy_source=self._legacy_model(spec)
+        )
         if problems:
             raise RunnerError(
                 f"model {spec.slug} completed but evidence is invalid: " + "; ".join(problems)
@@ -2564,11 +3395,14 @@ class Runner:
         self._invariant_check(manifest=manifest, require_clean_git=True)
 
         if run_info.get("status") == "completed":
-            problems = completed_model_problems(spec, self.run_dir, manifest)
+            legacy = self._legacy_model(spec)
+            problems = completed_model_problems(
+                spec, self.run_dir, manifest, allow_legacy_source=legacy
+            )
             if not problems:
                 return
             cleanup_only = completed_model_problems(
-                spec, self.run_dir, manifest, require_cleanup=False
+                spec, self.run_dir, manifest, require_cleanup=False, allow_legacy_source=legacy
             )
             if cleanup_only:
                 run_info["status"] = "failed"
@@ -2722,14 +3556,25 @@ class Runner:
             return
 
         attempts = info.get("attempts") or []
+        compat_allowed = False
         if attempts:
             last = attempts[-1]
+            exception = (self.compatibility or {}).get("retry_exception")
+            compat_allowed = bool(
+                exception
+                and spec.slug == exception.get("model")
+                and phase == exception.get("phase")
+                and len(attempts) == 1
+                and last.get("status") == "failed"
+                and last.get("retryable") is False
+                and self._attempt_matches_exception(last, exception)
+            )
             if not self.retry_failed:
                 raise RunnerError(
                     f"{spec.slug}/{phase} previously failed ({last.get('error')}); "
                     "re-run with --resume <run-dir> --retry-failed to retry once"
                 )
-            if last.get("retryable") is not True:
+            if not compat_allowed and last.get("retryable") is not True:
                 raise RunnerError(
                     f"{spec.slug}/{phase} failure is not in the transient allowlist and is "
                     f"not retryable ({last.get('error')})"
@@ -2743,6 +3588,11 @@ class Runner:
         attempt = {"attempt": attempt_no, "status": "running", "started": utc_now()}
         if attempt_no > 1:
             attempt["retry"] = self._prepare_retry(context, phase, attempt_no)
+            if compat_allowed:
+                attempt["retry"]["deviation"] = {
+                    "kind": COMPATIBILITY_RETRY_KIND,
+                    "id": (self.compatibility or {}).get("id"),
+                }
         attempts.append(attempt)
         info["attempts"] = attempts
         info["status"] = "running"
@@ -3108,6 +3958,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--retry-failed", action="store_true",
         help="with --resume: allow one retry of a failed transiently-retryable phase",
     )
+    parser.add_argument(
+        "--approve-compatible-runner-change", metavar="FULL_TARGET_SHA", default=None,
+        help=(
+            "with --resume and --retry-failed: audited one-time continuation of run "
+            "20260916T120019Z at the target commit when only runner/test files changed"
+        ),
+    )
     parser.add_argument("--select-rows", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--slug", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--config", default=None, help=argparse.SUPPRESS)
@@ -3131,12 +3988,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
     if args.retry_failed and not args.resume:
         parser.error("--retry-failed requires --resume")
+    if args.approve_compatible_runner_change and not (args.resume and args.retry_failed):
+        parser.error(
+            "--approve-compatible-runner-change requires --resume and --retry-failed"
+        )
 
     runner = Runner(
         root=RUN_ROOT,
         dry_run=args.dry_run,
         resume=args.resume,
         retry_failed=args.retry_failed,
+        approve_compatible_runner_change=args.approve_compatible_runner_change,
     )
     try:
         return runner.run()
