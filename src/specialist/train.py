@@ -170,18 +170,69 @@ def _reset_cuda_peak() -> None:
 
 
 def _cuda_peak_gib() -> tuple[float, float]:
-    """(peak allocated GiB, peak reserved GiB); (0, 0) without CUDA/torch."""
-    try:
-        import torch
+    """(peak allocated GiB, peak reserved GiB).
 
-        if not torch.cuda.is_available():
-            return 0.0, 0.0
-        return (
-            torch.cuda.max_memory_allocated() / 1024**3,
-            torch.cuda.max_memory_reserved() / 1024**3,
-        )
-    except Exception:  # pragma: no cover - driver/CUDA probing can fail
+    Returns (0, 0) only when CUDA is genuinely unavailable; probe/inspection
+    errors propagate so a silent zero can never pass the VRAM gate.
+    """
+    import torch
+
+    if not torch.cuda.is_available():
         return 0.0, 0.0
+    return (
+        torch.cuda.max_memory_allocated() / 1024**3,
+        torch.cuda.max_memory_reserved() / 1024**3,
+    )
+
+
+# Conservative tokens: any trainable parameter whose name contains one of these
+# means a vision-like tower/projector is actually being trained.
+VISION_LIKE_PARAMETER_TOKENS = (
+    "vision",
+    "visual",
+    "image",
+    "pixel",
+    "patch",
+    "multi_modal",
+    "multimodal",
+    "mm_projector",
+    "projector",
+)
+
+
+def trainable_parameter_summary(model, name_limit: int = 200, vision_name_limit: int = 50) -> dict:
+    """Actual post-PEFT trainable parameter counts/names (compact, JSON-safe).
+
+    Models that expose no `named_parameters()` (test doubles, exotic wrappers)
+    record an explicit `unavailable` status; vision acceptance refuses that.
+    """
+    if not hasattr(model, "named_parameters"):
+        return {
+            "status": "unavailable",
+            "reason": f"{type(model).__name__} exposes no named_parameters()",
+        }
+    names: list[str] = []
+    sizes: dict[str, int] = {}
+    for name, parameter in model.named_parameters():
+        if not getattr(parameter, "requires_grad", False):
+            continue
+        names.append(name)
+        sizes[name] = int(parameter.numel())
+    names.sort()
+    vision_like = [
+        name for name in names
+        if any(token in name.lower() for token in VISION_LIKE_PARAMETER_TOKENS)
+    ]
+    return {
+        "status": "available",
+        "count": len(names),
+        "numel": sum(sizes.values()),
+        "names": names[:name_limit],
+        "names_truncated": len(names) > name_limit,
+        "vision_like_count": len(vision_like),
+        "vision_like_numel": sum(sizes[name] for name in vision_like),
+        "vision_like_names": vision_like[:vision_name_limit],
+    }
 
 
 def _best_epoch(log_history: list[dict], best_checkpoint: str | None) -> float | None:
@@ -302,6 +353,10 @@ def train(config: dict, workspace: str | Path) -> dict:
     )
 
     model = FastModel.get_peft_model(model, **peft_kwargs(lora_cfg, kind))
+
+    # Actual post-PEFT trainable parameter summary (vision-like names prove the
+    # vision tower/projector really stayed frozen).
+    trainable_parameters = trainable_parameter_summary(model)
 
     # Assert again on the PEFT-wrapped object: counting modules on the final
     # object is what makes the recorded metadata meaningful.
@@ -432,7 +487,9 @@ def train(config: dict, workspace: str | Path) -> dict:
         resume_from_checkpoint = str(Path(resume_from_checkpoint).expanduser().resolve())
         print(f"Resuming from checkpoint: {resume_from_checkpoint}")
 
-    # Training-only CUDA peaks: reset after load/PEFT wrapping.
+    # Training-only CUDA peaks: reset after load/PEFT wrapping. The pre-reset
+    # figures cover model setup (from_pretrained + get_peft_model).
+    setup_peak_allocated_gib, setup_peak_reserved_gib = _cuda_peak_gib()
     _reset_cuda_peak()
 
     started = time.perf_counter()
@@ -489,6 +546,8 @@ def train(config: dict, workspace: str | Path) -> dict:
         "final_eval_loss": final_eval_loss,
         "train_peak_allocated_gib": train_peak_allocated_gib,
         "train_peak_reserved_gib": train_peak_reserved_gib,
+        "setup_peak_allocated_gib": setup_peak_allocated_gib,
+        "setup_peak_reserved_gib": setup_peak_reserved_gib,
         "precision": {
             "bf16": bool(train_cfg["bf16"]),
             "fp16": bool(train_cfg["fp16"]),
@@ -498,6 +557,7 @@ def train(config: dict, workspace: str | Path) -> dict:
         "quantization": quantization,
         "quantization_after_load": quantization_after_load,
         "lora": peft_kwargs(lora_cfg, kind),
+        "trainable_parameters": trainable_parameters,
         "wall_train_seconds": wall_train_seconds,
         "resume_from_checkpoint": resume_from_checkpoint,
         "prediction_loss_only": True,

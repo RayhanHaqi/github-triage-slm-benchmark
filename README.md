@@ -106,6 +106,71 @@ aborted on trainer compatibility bugs and is intentionally not committed. The
 successful benchmark environment is pinned in the `.[ml]` extra of
 `pyproject.toml`.
 
+## QLoRA-large track (separate, four models)
+
+`scripts/run_qlora_large.py` runs the fixed four-model 4-bit QLoRA benchmark in
+its own namespace, `benchmarks/qlora-large/<UTC run id>/`. It never writes to or
+deletes the BF16 track (`benchmarks/20260915T112519Z`, `benchmarks/LATEST`); the
+track-local `benchmarks/qlora-large/LATEST` is written only after all four
+models complete. Model order, repos, revisions, kinds and batch/GA are
+hard-coded and validated against `configs/qlora-large/*.yaml` before any
+download or GPU load.
+
+```bash
+python scripts/run_qlora_large.py --dry-run          # validate only: no download, no GPU model load
+python scripts/run_qlora_large.py                    # new run (requires a clean git tree)
+python scripts/run_qlora_large.py --resume benchmarks/qlora-large/<run-id>
+python scripts/run_qlora_large.py --resume benchmarks/qlora-large/<run-id> --retry-failed
+```
+
+New runs require the pinned ML environment and a git tree with no tracked
+changes and no untracked paths; while a run is in progress or being resumed,
+only files under that exact `benchmarks/qlora-large/<run-id>/` directory are
+tolerated, so previously retained runs and the track `LATEST` must be committed
+before the next run starts. All phases and probes run with the runner's own
+resolved `sys.executable` (there is no interpreter override flag); the manifest
+records that interpreter and `--resume` refuses a different one. The manifest
+records the git commit, config/frozen-data sha256, pinned versions and the
+PyTorch-visible GPU identity/capacity. The invariant guard re-checks clean git,
+the recorded HEAD/config digests/environment/data/GPU identity, >= 80 GiB free
+disk and no foreign GPU compute process (nvidia-smi failures are hard errors,
+not "idle") before starting every model.
+`--resume` refuses a different commit/config/environment/data/GPU and never
+reruns a phase marked successful (baseline included); a completed entry is only
+skipped after its retained evidence (run_info/acceptance/cleanup/selection/
+preflight/metrics/200-row predictions/comparison/snapshot digest) validates.
+`--retry-failed` allows exactly one retry of a phase whose failure matches the
+positive transient allowlist (HF/network 5xx/timeout/connection, AF_UNIX
+short-path, explicit external interruption); everything else, including OOM,
+quantization, NaN/Inf, architecture errors, offload and red-VRAM, is a hard
+stop. A train retry resumes only from a checkpoint that actually validates
+(directory step == `trainer_state.json.global_step`, non-empty adapter +
+optimizer + scheduler + rng states that load, readable safetensors/JSON) via a
+retained attempt-specific config; otherwise the partial train output is deleted
+and the phase restarts identically. Per model the runner first performs a
+preflight (8 train / 2 val / 1 test real rows with >= 2048 rendered tokens at
+the resolved pinned SHA, a tiny run through the production train path, and one
+quantized baseline plus one selected-adapter generation, all re-validated for
+NF4/no-offload/revision/best-checkpoint) in fresh
+`preflight/attempt-N/{first,repeat}` workspaces behind a VRAM gate
+(<= 13.50 GiB go, 13.50-14.25 repeat once, otherwise stop), then runs
+baseline -> train -> adapter eval -> comparison -> acceptance -> cleanup
+strictly sequentially.
+
+Retained under `benchmarks/qlora-large/<run-id>/`: `manifest.json` (status
+`completed` only after four successes and only then the track-local `LATEST`,
+written via sibling temp + fsync + atomic replace; otherwise `partial`/
+`failed`), per-model `config.yaml`, `run_info.json` with phase
+attempts/timestamps, `acceptance.json` (revision/quantization/hash/epoch/
+best-checkpoint/VRAM checks), `cleanup.json` (GPU-idle before/after plus bytes
+deleted, written atomically), `preflight/{selection.json, preflight.json}`,
+`workspace/` metrics, predictions and comparison, and `logs/`. Only scratch is
+deleted after acceptance (per-model `.cache/<slug>`, adapter, trainer, copied
+JSONLs, short `/tmp/opencode/b/<run-id>/<slug>`); a successful preflight attempt
+scratch is deleted before the full phases, while failed attempt diagnostics are
+kept. Retained run metadata must be committed before a new clean-tree run can
+start.
+
 ## Artifact policy (git)
 
 Committed: source, configs, tests, run metadata (`config.yaml`,

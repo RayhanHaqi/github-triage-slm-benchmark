@@ -119,7 +119,7 @@ def _require_base_field_match(baseline: dict, finetuned: dict, field: str, label
         )
 
 
-def _quantization_view(metrics: dict) -> dict:
+def quantization_view(metrics: dict) -> dict:
     """Quantization signature for cross-run matching; absent key = legacy BF16.
 
     Offload is compared as counts, not module names: adapter wrapping changes
@@ -142,6 +142,10 @@ def _quantization_view(metrics: dict) -> dict:
             "meta": len(offload.get("meta") or []),
         },
     }
+
+
+# Backwards-compatible private alias for existing callers/tests.
+_quantization_view = quantization_view
 
 
 def build_comparison(run_dir: str | Path, config: dict) -> dict:
@@ -171,8 +175,8 @@ def build_comparison(run_dir: str | Path, config: dict) -> dict:
     ):
         _require_base_field_match(baseline, finetuned, field, label)
 
-    baseline_quant = _quantization_view(baseline)
-    finetuned_quant = _quantization_view(finetuned)
+    baseline_quant = quantization_view(baseline)
+    finetuned_quant = quantization_view(finetuned)
     if baseline_quant != finetuned_quant:
         raise RuntimeError(
             "baseline and fine-tuned runs used different quantization settings: "
@@ -184,7 +188,7 @@ def build_comparison(run_dir: str | Path, config: dict) -> dict:
             "checkpoint": m["checkpoint"],
             "mode": m["mode"],
             "adapter": m["adapter"],
-            "quantization": _quantization_view(m),
+            "quantization": quantization_view(m),
             "strict_accuracy": m["strict_accuracy"],
             "semantic_accuracy": m["semantic_accuracy"],
             "valid_output_rate": m["valid_output_rate"],

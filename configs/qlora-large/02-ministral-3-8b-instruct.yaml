@@ -1,0 +1,154 @@
+# QLoRA large-model benchmark track, model 2/4: Ministral-3-8B-Instruct-2512-BF16.
+#
+# Base data/cleaning/split/prompt/eval semantics are copied exactly from
+# `configs/vscode-bug-feature.yaml`. Only model quality-of-life fields and the
+# quantized 4-bit training recipe differ; the BF16 track is not modified and
+# results must never be ranked against it.
+#
+# Relative paths resolve against this config's own `configs/qlora-large/`
+# directory: nested `configs/*/` configs do NOT get the top-level `configs/`
+# project-root shortcut. `../../` therefore lands on the project root
+# (data_dir/runs_dir) and `../../../` on its parent, where the frozen sibling
+# `github-triage-data/` dataset lives. `~` and `$ENV_VARS` are expanded first.
+
+name: 02-ministral-3-8b-instruct
+description: "Frozen VS Code issue benchmark: Ministral-3-8B-Instruct-2512-BF16 (QLoRA NF4)."
+
+paths:
+  # Resolved against this config's own directory; `../../` lands on the
+  # project root, so standalone phases share the reference config's dirs.
+  data_dir: ../../data
+  # Root for `specialist run` UTC run directories.
+  runs_dir: ../../runs
+
+# class name -> source. `github_label` is the GitHub label to query for live
+# gathers; `file` points at a previously gathered JSON array. Remove `file`
+# (and keep repo/github_label) to gather live with `gh issue list`.
+# Mapping order is source truth: it fixes class order for cleaning/splits.
+# Three levels up from `configs/qlora-large/` reaches the project root's
+# parent, where the frozen sibling `github-triage-data/` dataset lives.
+sources:
+  bug:
+    github_label: bug
+    repo: microsoft/vscode
+    file: ../../../github-triage-data/bugs.json
+  feature-request:
+    github_label: feature-request
+    repo: microsoft/vscode
+    file: ../../../github-triage-data/features.json
+
+cleaning:
+  # Cap on rows taken per class, in existing (source) order.
+  max_examples_per_class: 1000
+  # Discard records whose title+body has fewer than this many non-whitespace chars.
+  min_visible_chars: 5
+  # Regex rules applied in order to the title; flags: i/m/s/x.
+  title_patterns:
+    - {pattern: '^\s*\[\s*bug\s*\]\s*[:\-]?\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*bug\s*[:\-]\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*\[\s*feature(?:\s+request)?\s*\]\s*[:\-]?\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*feature\s+request\s*[:\-]\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*\[\s*needs?\s+more\s+info(?:rmation)?\s*\]\s*[:\-]?\s*', flags: i, replacement: ''}
+    - {pattern: '^\s*needs?\s+more\s+info(?:rmation)?\s*[:\-]\s*', flags: i, replacement: ''}
+  # Regex rules applied in order to the body.
+  body_patterns:
+    # GitHub template HTML comments
+    - {pattern: '<!--.*?-->', flags: s, replacement: ''}
+    # "### Type\nBug" style headers
+    - {pattern: '(?im)^#{1,6}\s*(?:issue\s+)?type\s*$\n+\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$', flags: '', replacement: ''}
+    # "Type: Bug" / "Issue Type: Feature Request" lines
+    - {pattern: '(?im)^\s*(?:\*\*)?(?:issue\s+)?type(?:\*\*)?\s*:\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$', flags: '', replacement: ''}
+    # Collapse excessive newlines, preserve paragraphs/code
+    - {pattern: '\n{4,}', flags: '', replacement: "\n\n\n"}
+  # Used for the empty check (whitespace removed) and the duplicate key.
+  whitespace_pattern: '\s+'
+  duplicate_key_lowercase: true
+
+split:
+  # Temporal per-class split: train [:int(n*0.8)], val [int(n*0.8):int(n*0.9)],
+  # test [int(n*0.9):]. Ratios are cumulative fractions of each class.
+  train_ratio: 0.8
+  val_ratio: 0.9
+  temporal_key: created_at
+  seed: 42
+
+model:
+  base_model: mistralai/Ministral-3-8B-Instruct-2512-BF16
+  system_prompt: "Classify the GitHub issue into exactly one category: bug or feature-request. Return only the category name."
+  max_seq_length: 2048
+  load_in_4bit: true
+  # Official BF16 checkpoint pinned: no FP8 or re-uploaded variant, and
+  # `use_exact_model_name` prevents a pre-quantized remap so the NF4 conversion
+  # is performed on the fly by Unsloth from this exact revision.
+  revision: f6fae9795746f63c9be8344932f01275f3c63734
+  kind: vision
+  trust_remote_code: false
+  use_exact_model_name: true
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0
+  target_modules: all-linear
+  bias: none
+  gradient_checkpointing: unsloth
+  random_state: 42
+  # Ministral path: vision tower frozen, language/attention/MLP adapted.
+  finetune_vision_layers: false
+  finetune_language_layers: true
+  finetune_attention_modules: true
+  finetune_mlp_modules: true
+
+training:
+  # run dir sub-directories for checkpoints and the final adapter
+  output_subdir: trainer
+  adapter_subdir: adapter
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 4
+  num_train_epochs: 3
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.05
+  logging_steps: 10
+  eval_strategy: epoch
+  save_strategy: epoch
+  save_total_limit: 2
+  # Best-checkpoint selection by validation loss (fail-closed in train.py).
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  bf16: true
+  fp16: false
+  optim: adamw_8bit
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  seed: 42
+  report_to: none
+  # Ministral path: message rows through UnslothVisionDataCollator.
+  vision_collator: true
+
+evaluation:
+  split: test
+  # Truncate the issue text alone (not the chat template) to this many tokens.
+  max_user_tokens: 1800
+  max_new_tokens: 12
+  do_sample: false
+  pad_eos: true
+  # Ministral chat template takes no extra kwargs.
+  chat_template_kwargs: {}
+
+benchmark:
+  display_name: Ministral-3-8B-Instruct-2512-BF16
+  checkpoint: mistralai/Ministral-3-8B-Instruct-2512-BF16
+  revision: f6fae9795746f63c9be8344932f01275f3c63734
+  # Prior-track field names kept so existing report machinery reads them as-is.
+  official_checkpoint: mistralai/Ministral-3-8B-Instruct-2512-BF16
+  pinned_revision: f6fae9795746f63c9be8344932f01275f3c63734
+  method: QLoRA NF4
+  compatibility_notes: >-
+    Official BF16 checkpoint forced with use_exact_model_name (not FP8 or a
+    re-upload); NF4 double-quantized 4-bit base with BF16 compute;
+    FastVisionModel with the vision tower frozen and language/attention/MLP
+    LoRA; UnslothVisionDataCollator on message rows; adapter saved from the best
+    eval_loss checkpoint. QLoRA track only: never rank against the BF16
+    reference track.

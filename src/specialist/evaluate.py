@@ -60,6 +60,22 @@ def load_jsonl(path: str | Path) -> list[dict]:
     return rows
 
 
+def _cuda_peak_gib() -> tuple[float, float]:
+    """(peak allocated GiB, peak reserved GiB).
+
+    Returns (0, 0) only when CUDA is genuinely unavailable; probe/inspection
+    errors propagate so a silent zero can never pass the VRAM gate.
+    """
+    import torch
+
+    if not torch.cuda.is_available():
+        return 0.0, 0.0
+    return (
+        torch.cuda.max_memory_allocated() / 1024**3,
+        torch.cuda.max_memory_reserved() / 1024**3,
+    )
+
+
 def evaluate(config: dict, workspace: str | Path, checkpoint: str) -> dict:
     """Evaluate `checkpoint` on the configured split; write metrics JSON + predictions CSV."""
     import torch
@@ -104,6 +120,10 @@ def evaluate(config: dict, workspace: str | Path, checkpoint: str) -> dict:
         load_in_4bit=load_in_4bit,
     )
     model, tokenizer = loaded.model, loaded.tokenizer
+
+    # Load-time peak before the inference reset below covers from_pretrained
+    # (+ PeftModel when evaluating an adapter).
+    load_peak_allocated_gb, load_peak_reserved_gb = _cuda_peak_gib()
 
     # Re-assert on the final object; quantization metadata lands in metrics.
     quantization = model_mod.assert_effective_quantization(
@@ -286,6 +306,8 @@ def evaluate(config: dict, workspace: str | Path, checkpoint: str) -> dict:
         "total_generation_time_s": total_generation_time,
         "peak_allocated_gb": peak_allocated_gb,
         "peak_reserved_gb": peak_reserved_gb,
+        "load_peak_allocated_gb": load_peak_allocated_gb,
+        "load_peak_reserved_gb": load_peak_reserved_gb,
     }
 
     metrics_path = workspace / f"{phase}_metrics.json"
