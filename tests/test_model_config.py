@@ -755,6 +755,33 @@ class TrainHelpersTest(unittest.TestCase):
         self.assertNotIn("finetune_vision_layers", kwargs)
         self.assertEqual(kwargs["lora_alpha"], 32)
 
+    def test_peft_kwargs_for_peft_call_maps_only_vision_all_linear(self):
+        call_kwargs = train_mod.peft_kwargs(self.LORA, "vision", for_peft_call=True)
+        self.assertIsNone(call_kwargs["target_modules"])
+        self.assertFalse(call_kwargs["finetune_vision_layers"])
+        self.assertTrue(call_kwargs["finetune_language_layers"])
+        self.assertTrue(call_kwargs["finetune_attention_modules"])
+        self.assertTrue(call_kwargs["finetune_mlp_modules"])
+        # requested value stays in the default (metrics) form
+        self.assertEqual(
+            train_mod.peft_kwargs(self.LORA, "vision")["target_modules"], "all-linear"
+        )
+        # language path is never remapped
+        self.assertEqual(
+            train_mod.peft_kwargs(
+                self.LORA, "language", for_peft_call=True
+            )["target_modules"],
+            "all-linear",
+        )
+        # explicit module lists are passed through untouched
+        explicit = dict(self.LORA, target_modules=["q_proj", "v_proj"])
+        self.assertEqual(
+            train_mod.peft_kwargs(
+                explicit, "vision", for_peft_call=True
+            )["target_modules"],
+            ["q_proj", "v_proj"],
+        )
+
     def test_library_versions_json_serializable(self):
         versions = model_mod.library_versions()
         self.assertIn("python", versions)
@@ -1008,6 +1035,34 @@ class TrainPathSelectionTest(unittest.TestCase):
         self.assertEqual(kwargs["args"].kwargs["eos_token"], "<|im_end|>")
         self.assertIn("text", dataset_calls[0][0])
         self.assertEqual(collators, [])
+
+    def test_vision_all_linear_call_site_passes_none_with_explicit_flags(self):
+        tmp, ws = self._workspace()
+        with tmp:
+            _, _, _, _, _, (flm, fvm) = self._run(
+                self._config(kind="vision", revision="9c1f0d2e"), ws
+            )
+
+        # The literal "all-linear" makes Unsloth 2026.9.4 FastVisionModel
+        # force every finetune_* flag True; the call site must pass None so the
+        # explicit flags below are honored through get_peft_regex.
+        self.assertIsNone(fvm.last_peft["target_modules"])
+        self.assertFalse(fvm.last_peft["finetune_vision_layers"])
+        self.assertTrue(fvm.last_peft["finetune_language_layers"])
+        self.assertTrue(fvm.last_peft["finetune_attention_modules"])
+        self.assertTrue(fvm.last_peft["finetune_mlp_modules"])
+        self.assertFalse(hasattr(flm, "last_peft"))
+
+    def test_language_all_linear_call_site_keeps_literal(self):
+        tmp, ws = self._workspace()
+        with tmp:
+            metrics, _, _, _, _, (flm, fvm) = self._run(self._config(), ws)
+
+        self.assertEqual(flm.last_peft["target_modules"], "all-linear")
+        self.assertNotIn("finetune_vision_layers", flm.last_peft)
+        self.assertFalse(hasattr(fvm, "last_peft"))
+        # recorded metrics keep the requested value
+        self.assertEqual(metrics["lora"]["target_modules"], "all-linear")
 
     def test_vision_collator_path_uses_message_rows(self):
         config = self._config(kind="vision")

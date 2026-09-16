@@ -30,6 +30,17 @@ explicit external interruption); everything else is a hard stop. A train retry
 resumes only from a complete checkpoint (trainer_state + adapter + optimizer +
 scheduler + rng state), otherwise the partial train output is deleted and the
 run restarts the phase identically.
+
+One-time vision continuation: `--init-vision-continuation <old-run>` creates a
+fresh run that imports only the accepted Qwen evidence (exact source run,
+pinned evidence commit, byte-identical copies) and leaves models 2-4 pending;
+it runs no model/phase subprocess and never reruns the accepted model.
+
+GPU sharing: one user-approved exception allows the exact installed RustDesk
+executable to keep running (aggregate allowance 512 MiB; anything else fails
+closed, nothing is killed). VRAM headroom is judged against effective capacity:
+device total capped by observed free memory minus the remaining RustDesk
+allowance, minimum over phase-boundary samples.
 """
 
 from __future__ import annotations
@@ -114,6 +125,15 @@ VRAM_REPEAT_MAX_GIB = 14.25
 VRAM_HEADROOM_MIN_GIB = 1.0
 VRAM_REPEAT_TOLERANCE_GIB = 0.25
 
+# One-time user-approved GPU-sharing exception: RustDesk may keep running during
+# GPU phases. Only the exact installed executable is allowed, its aggregate use
+# must stay within this fixed allowance (roughly double the ~257 MiB observed in
+# the read-only resource check), and effective capacity reserves whatever part
+# of the allowance is not in use yet. Nothing is ever killed.
+RUSTDESK_EXECUTABLE = "/usr/share/rustdesk/rustdesk"
+RUSTDESK_ALLOWANCE_MIB = 512.0
+GPU_SHARING_POLICY = "rustdesk_shared_gpu_v1"
+
 PHASES = ("preflight", "baseline", "train", "adapter_eval", "comparison", "acceptance", "cleanup")
 
 # Audited one-time compatible-runner continuation (Oracle-recommended).
@@ -137,6 +157,33 @@ KNOWN_INCIDENT_PHASE = "preflight"
 KNOWN_INCIDENT_ERROR = "preflight: selection exit code 1 (not in the transient allowlist)"
 KNOWN_INCIDENT_LOG_REL = "models/02-ministral-3-8b-instruct/logs/selection-a1.log"
 KNOWN_INCIDENT_LOG_SHA256 = "b3a27a643b5b288eaee9dbd435c5acbb616163487b26b8185a2e4d378ba9994b"
+
+# One-time vision continuation: a NEW run that imports only the accepted Qwen
+# evidence from the audited vision-failure source run. Deliberately separate
+# from the compatible-runner continuation above (which stays frozen for the old
+# run): this path never extends that protocol, never writes to the source run
+# and never reruns the accepted model.
+VISION_CONTINUATION_SOURCE_RUN = "20260916T120019Z"
+VISION_CONTINUATION_MODEL = "01-qwen3-8b"
+VISION_CONTINUATION_SOURCE_COMMIT = "385bbb957733e37d31627ff3f67e9931c95e6946"
+VISION_CONTINUATION_EVIDENCE_COMMIT = "429d5ccd885ec9188e76ae1d2685e210e5b34e7f"
+IMPORTED_QWEN_KIND = "vision_continuation_qwen_import"
+IMPORTED_QWEN_KEYS = (
+    "kind",
+    "model",
+    "source_run_id",
+    "source_path",
+    "source_git_commit",
+    "evidence_commit",
+    "evidence_paths",
+    "evidence_sha256",
+    "reason",
+)
+IMPORTED_QWEN_REASON = (
+    "The accepted Qwen run executed the unchanged language path; the vision fix "
+    "only changes the actual PEFT all-linear call for vision models, so its "
+    "evidence is imported instead of rerun."
+)
 
 SYSTEM_PROMPT = (
     "Classify the GitHub issue into exactly one category: bug or feature-request. "
@@ -609,6 +656,155 @@ def probe_gpu_compute_processes() -> list[str]:
             f"{result.stderr.strip()[:200]!r}"
         )
     return parse_gpu_compute_processes(result.stdout)
+
+
+# --------------------------------------------------------------------------- #
+# shared-GPU policy (approved RustDesk exception)
+# --------------------------------------------------------------------------- #
+
+def parse_used_memory_mib(field: str) -> float | None:
+    """Strict numeric, finite, nonnegative MiB; anything else is None (fail closed)."""
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(?:MiB)?", field.strip())
+    if not match:
+        return None
+    value = float(match.group(1))
+    return value if math.isfinite(value) and value >= 0 else None
+
+
+def parse_gpu_free_mib(output: str) -> float:
+    """Strict free device memory in MiB from `--format=csv,noheader,nounits`."""
+    text = output.strip()
+    value = parse_used_memory_mib(text)
+    if value is None:
+        raise RunnerError(f"malformed nvidia-smi free-memory output: {text!r}")
+    return value
+
+
+def probe_gpu_free_mib(device_index: int = 0) -> float:
+    """Observed free device memory via nvidia-smi.
+
+    Deliberately not `torch.cuda.mem_get_info`, which would create a parent CUDA
+    context in the runner process. Fails closed on any probe error.
+    """
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "-i", str(device_index), "--query-gpu=memory.free",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError as exc:
+        raise RunnerError(
+            f"nvidia-smi free-memory probe failed: {type(exc).__name__}: {exc}"
+        ) from exc
+    if result.returncode != 0:
+        raise RunnerError(
+            f"nvidia-smi free-memory probe failed with exit code {result.returncode}: "
+            f"{result.stderr.strip()[:200]!r}"
+        )
+    return parse_gpu_free_mib(result.stdout)
+
+
+def read_proc_exe(pid: int, proc_root: str | Path = "/proc") -> str | None:
+    """Resolved `/proc/<pid>/exe`; None when the executable cannot be verified."""
+    try:
+        return str((Path(proc_root) / str(pid) / "exe").resolve(strict=True))
+    except OSError:
+        return None
+
+
+def classify_gpu_compute_processes(rows: list[str], proc_root: str | Path = "/proc") -> dict:
+    """Classify nvidia-smi compute rows under the approved sharing policy.
+
+    Only a process whose `/proc/<pid>/exe` resolves exactly to the installed
+    RustDesk executable is allowed; other processes, unverifiable PIDs,
+    malformed/N/A/negative `used_memory` and RustDesk usage above the fixed
+    aggregate allowance are refused (fail closed). Nothing is killed.
+    """
+    allowed: list[dict] = []
+    foreign: list[str] = []
+    problems: list[str] = []
+    allowed_used_mib = 0.0
+    allowed_exe = str(Path(RUSTDESK_EXECUTABLE).resolve())
+    for row in rows:
+        fields = [field.strip() for field in row.split(",")]
+        if len(fields) < 3 or not fields[0].isdigit():
+            problems.append(f"malformed nvidia-smi compute-process row: {row!r}")
+            continue
+        pid = int(fields[0])
+        used_mib = parse_used_memory_mib(fields[-1])
+        if used_mib is None:
+            problems.append(f"malformed nvidia-smi used_memory for pid {pid}: {fields[-1]!r}")
+            continue
+        exe = read_proc_exe(pid, proc_root)
+        if exe is not None and exe == allowed_exe:
+            allowed.append({"pid": pid, "exe": exe, "used_mib": used_mib})
+            allowed_used_mib += used_mib
+        else:
+            foreign.append(row)
+    if allowed_used_mib > RUSTDESK_ALLOWANCE_MIB:
+        problems.append(
+            f"allowed RustDesk GPU memory {allowed_used_mib:.0f} MiB exceeds the "
+            f"{RUSTDESK_ALLOWANCE_MIB:.0f} MiB allowance"
+        )
+    return {
+        "ok": not foreign and not problems,
+        "allowed": allowed,
+        "foreign": foreign,
+        "problems": problems,
+        "allowed_used_mib": allowed_used_mib,
+    }
+
+
+def gpu_sharing_observation(total_gib: float) -> dict:
+    """One point-in-time shared-GPU observation plus conservative capacity.
+
+    Capacity is `min(torch-visible total, observed free - remaining RustDesk
+    allowance beyond its current usage)`. Free memory already excludes current
+    usage, so actual RustDesk usage is not subtracted twice; a non-positive
+    budget fails closed.
+    """
+    if total_gib <= 0:
+        raise RunnerError(f"no usable torch-visible GPU capacity: {total_gib!r} GiB")
+    state = classify_gpu_compute_processes(probe_gpu_compute_processes())
+    if not state["ok"]:
+        raise RunnerError(
+            f"shared GPU policy violation: {state['foreign'] or state['problems']}"
+        )
+    free_mib = probe_gpu_free_mib()
+    remaining_mib = max(RUSTDESK_ALLOWANCE_MIB - state["allowed_used_mib"], 0.0)
+    budget_mib = free_mib - remaining_mib
+    if budget_mib <= 0:
+        raise RunnerError(
+            f"shared GPU capacity is not positive: {free_mib:.0f} MiB free - "
+            f"{remaining_mib:.0f} MiB remaining RustDesk allowance"
+        )
+    return {
+        "observed_at": utc_now(),
+        "policy": GPU_SHARING_POLICY,
+        "rustdesk": state["allowed"],
+        "rustdesk_used_mib": state["allowed_used_mib"],
+        "allowance_mib": RUSTDESK_ALLOWANCE_MIB,
+        "remaining_allowance_mib": remaining_mib,
+        "free_mib": free_mib,
+        "torch_total_gib": total_gib,
+        "effective_capacity_gib": min(total_gib, budget_mib / 1024.0),
+    }
+
+
+def gpu_sharing_metadata() -> dict:
+    """Immutable policy declaration recorded on new runs (not observations)."""
+    return {
+        "policy": GPU_SHARING_POLICY,
+        "allowed_executable": RUSTDESK_EXECUTABLE,
+        "allowance_mib": RUSTDESK_ALLOWANCE_MIB,
+        "notes": [
+            "One-time user-approved exception: RustDesk may keep running during GPU phases.",
+            "Observations are phase-boundary samples before/after GPU subprocesses, not "
+            "continuous sampling; no instantaneous safety guarantee is claimed.",
+            "The imported Qwen evidence was produced without GPU sharing, so its VRAM/"
+            "timing numbers are not directly comparable to models run under this policy.",
+        ],
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -1811,6 +2007,131 @@ def model_evidence_relative_paths(spec: ModelSpec) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# vision-continuation Qwen import
+# --------------------------------------------------------------------------- #
+
+def imported_qwen_record_problems(record) -> list[str]:
+    """Exact shape/identity of the narrow manifest-level import record."""
+    if not isinstance(record, dict):
+        return ["imported_qwen metadata is not an object"]
+    missing = sorted(set(IMPORTED_QWEN_KEYS) - set(record))
+    extra = sorted(set(record) - set(IMPORTED_QWEN_KEYS))
+    if missing or extra:
+        return [f"imported_qwen keys differ from the fixed set (missing={missing}, extra={extra})"]
+    problems = []
+    for field, expected in (
+        ("kind", IMPORTED_QWEN_KIND),
+        ("model", VISION_CONTINUATION_MODEL),
+        ("source_run_id", VISION_CONTINUATION_SOURCE_RUN),
+        ("source_path", run_repo_dir(VISION_CONTINUATION_SOURCE_RUN)),
+        ("source_git_commit", VISION_CONTINUATION_SOURCE_COMMIT),
+        ("evidence_commit", VISION_CONTINUATION_EVIDENCE_COMMIT),
+    ):
+        if record[field] != expected:
+            problems.append(f"imported_qwen {field} {record[field]!r} != {expected!r}")
+    if not isinstance(record["reason"], str) or not record["reason"].strip():
+        problems.append("imported_qwen reason is missing")
+    expected_paths = model_evidence_relative_paths(spec_by_slug(VISION_CONTINUATION_MODEL))
+    paths = record["evidence_paths"]
+    if (
+        not isinstance(paths, list)
+        or sorted(map(str, paths)) != sorted(expected_paths)
+        or len(set(map(str, paths))) != len(expected_paths)
+    ):
+        problems.append("imported_qwen evidence_paths is not the exact retained-evidence set")
+    digests = record["evidence_sha256"]
+    if not isinstance(digests, dict) or set(digests) != set(expected_paths):
+        problems.append("imported_qwen evidence_sha256 is not the exact retained-evidence map")
+    elif any(not isinstance(value, str) or len(value) != 64 for value in digests.values()):
+        problems.append("imported_qwen evidence_sha256 contains a non-sha value")
+    return problems
+
+
+def imported_qwen_evidence_problems(
+    project_root: str | Path,
+    run_dir: str | Path,
+    record,
+    *,
+    evidence_commit: str = VISION_CONTINUATION_EVIDENCE_COMMIT,
+) -> list[str]:
+    """Copied Qwen blobs: recorded digests and the pinned source Git blobs.
+
+    Deterministic helpers, never the mutable record alone: a tampered copy is
+    rejected even when its recorded digest was edited to match.
+    """
+    problems = imported_qwen_record_problems(record)
+    if problems:
+        return problems
+    run_dir = Path(run_dir)
+    for relative in model_evidence_relative_paths(spec_by_slug(VISION_CONTINUATION_MODEL)):
+        path = run_dir / relative
+        if not path.is_file():
+            problems.append(f"imported Qwen evidence missing: {relative}")
+            continue
+        if sha256_file(path) != record["evidence_sha256"].get(relative):
+            problems.append(f"imported Qwen evidence digest != recorded digest: {relative}")
+            continue
+        if not evidence_content_matches(
+            project_root,
+            evidence_commit,
+            f"{run_repo_dir(VISION_CONTINUATION_SOURCE_RUN)}/{relative}",
+            path,
+        ):
+            problems.append(
+                f"imported Qwen evidence does not match the pinned source blob: {relative}"
+            )
+    return problems
+
+
+def imported_qwen_missing_problems(project_root: str | Path, run_dir: str | Path) -> list[str]:
+    """A Qwen run_info proven to be the pinned source copy must carry metadata.
+
+    Its bytes are identical to the pinned source run, which no ordinary
+    execution of the new run can produce; without the import record the
+    ordinary completed path would trust unprovenanceable legacy evidence. The
+    source run itself keeps its own recorded protocol.
+    """
+    run_dir = Path(run_dir)
+    if run_dir.name == VISION_CONTINUATION_SOURCE_RUN:
+        return []
+    relative = f"models/{VISION_CONTINUATION_MODEL}/run_info.json"
+    run_info = run_dir / relative
+    if run_info.is_file() and evidence_content_matches(
+        project_root,
+        VISION_CONTINUATION_EVIDENCE_COMMIT,
+        f"{run_repo_dir(VISION_CONTINUATION_SOURCE_RUN)}/{relative}",
+        run_info,
+    ):
+        return ["Qwen evidence matches the pinned source run but imported_qwen metadata is missing"]
+    return []
+
+
+def imported_qwen_problems(project_root: str | Path, run_dir: str | Path, manifest: dict) -> list[str]:
+    """Record + entry + copied-evidence validation for a run that imported Qwen.
+
+    Runs before any mutation on resume; a run without the record is only
+    refused when its Qwen run_info is provably the pinned source copy.
+    """
+    record = manifest.get("imported_qwen")
+    if record is None:
+        return imported_qwen_missing_problems(project_root, run_dir)
+    problems = []
+    entry = next(
+        (
+            model for model in manifest.get("models") or []
+            if isinstance(model, dict) and model.get("slug") == VISION_CONTINUATION_MODEL
+        ),
+        None,
+    )
+    if entry is None:
+        problems.append("imported Qwen run manifest has no Qwen model entry")
+    elif entry.get("status") != "completed":
+        problems.append(f"imported Qwen entry status {entry.get('status')!r} != 'completed'")
+    problems += imported_qwen_evidence_problems(project_root, run_dir, record)
+    return problems
+
+
+# --------------------------------------------------------------------------- #
 # audited continuation baseline helpers
 # --------------------------------------------------------------------------- #
 
@@ -2267,6 +2588,7 @@ class Runner:
         resume: str | Path | None = None,
         retry_failed: bool = False,
         approve_compatible_runner_change: str | None = None,
+        init_vision_continuation: str | None = None,
         out=print,
     ):
         self.project_root = _resolved(project_root)
@@ -2279,7 +2601,9 @@ class Runner:
         self.resume = resume
         self.retry_failed = retry_failed
         self.approved_target = approve_compatible_runner_change
+        self.init_vision_continuation = init_vision_continuation
         self.compatibility: dict | None = None
+        self.imported_qwen: dict | None = None
         self._resuming = False
         self._manifest_writable = False
         self.out = out
@@ -2321,9 +2645,10 @@ class Runner:
                     )
                 if recorded.get("visible_devices") != gpu["visible_devices"]:
                     problems.append("visible CUDA device count differs from the run manifest")
-        processes = probe_gpu_compute_processes()
-        if processes:
-            problems.append(f"foreign GPU compute processes active: {processes}")
+        sharing = classify_gpu_compute_processes(probe_gpu_compute_processes())
+        if sharing["foreign"]:
+            problems.append(f"foreign GPU compute processes active: {sharing['foreign']}")
+        problems += [f"GPU sharing: {problem}" for problem in sharing["problems"]]
 
         data_report, data_problems = frozen_data_report(self.data_dir)
         problems += data_problems
@@ -2397,6 +2722,11 @@ class Runner:
                 ):
                     problems.append(f"locked Qwen evidence changed: {relative}")
 
+        if self.imported_qwen is not None and self.run_dir is not None:
+            problems += imported_qwen_evidence_problems(
+                self.project_root, self.run_dir, self.imported_qwen
+            )
+
         if problems:
             raise RunnerError("invariant check failed:\n  - " + "\n  - ".join(problems))
         return {"versions": versions, "gpu": gpu, "data": data_report, "free_gib": free_gib}
@@ -2447,6 +2777,9 @@ class Runner:
     # -- audited compatible-runner continuation ----------------------------- #
 
     def _legacy_model(self, spec: ModelSpec) -> bool:
+        if self.imported_qwen is not None:
+            # Only the single imported Qwen receives the legacy-source overlay.
+            return spec.slug == VISION_CONTINUATION_MODEL
         return bool(self.compatibility) and spec.slug in (
             self.compatibility.get("legacy_models") or ()
         )
@@ -3024,6 +3357,13 @@ class Runner:
 
     def run(self) -> int:
         try:
+            if self.init_vision_continuation is not None:
+                if self.dry_run or self.resume or self.retry_failed or self.approved_target is not None:
+                    raise RunnerError(
+                        "--init-vision-continuation is mutually exclusive with "
+                        "resume/dry-run/retry/approval"
+                    )
+                return self._init_vision_continuation()
             if self.dry_run:
                 return self._dry_run()
             if self.resume:
@@ -3105,6 +3445,203 @@ class Runner:
         manifest["latest_written"] = False
         self._persist_manifest()
 
+    # -- one-time vision-continuation init ---------------------------------- #
+
+    def _vision_continuation_source(self) -> Path:
+        """Exact audited source run: restricted run id, exact namespace, no symlink."""
+        raw = str(self.init_vision_continuation)
+        unresolved = Path(raw) if (Path(raw).is_absolute() or os.sep in raw) else self.root / raw
+        source = _resolved(unresolved)
+        problems = []
+        if source.name != VISION_CONTINUATION_SOURCE_RUN:
+            problems.append(
+                f"source run {source.name!r} != restricted {VISION_CONTINUATION_SOURCE_RUN!r}"
+            )
+        if source.parent != self.root or not ensure_within(source, self.root):
+            problems.append(f"source run is not exactly under the track root {self.root}: {source}")
+        if Path(unresolved).is_symlink():
+            problems.append(f"source run must not be a symlink: {unresolved}")
+        if problems:
+            raise RunnerError("vision continuation source refused:\n  - " + "\n  - ".join(problems))
+        return source
+
+    def _init_vision_continuation(self) -> int:
+        """New run whose model1 is the accepted Qwen imported from the source run.
+
+        Every source/evidence/input check runs before a single byte is written;
+        the manifest is staged only after the copies verify, so an interrupted
+        init can never look like a resumable completed import. No model or phase
+        subprocess runs, and no LATEST is written.
+        """
+        source_dir = self._vision_continuation_source()
+        summary = self._invariant_check(manifest=None, require_clean_git=True)
+        self.gpu = summary["gpu"]
+        qwen = spec_by_slug(VISION_CONTINUATION_MODEL)
+
+        manifest_path = source_dir / "manifest.json"
+        if not manifest_path.is_file():
+            raise RunnerError(f"vision continuation source manifest missing: {manifest_path}")
+        try:
+            source_manifest = read_json(manifest_path)
+        except (OSError, ValueError) as exc:
+            raise RunnerError(f"vision continuation source manifest unreadable: {exc}") from exc
+
+        problems: list[str] = []
+        if source_manifest.get("track") != TRACK:
+            problems.append(f"source manifest track {source_manifest.get('track')!r} != {TRACK!r}")
+        if source_manifest.get("run_id") != VISION_CONTINUATION_SOURCE_RUN:
+            problems.append(
+                f"source manifest run_id {source_manifest.get('run_id')!r} != "
+                f"{VISION_CONTINUATION_SOURCE_RUN!r}"
+            )
+        if source_manifest.get("git_commit") != VISION_CONTINUATION_SOURCE_COMMIT:
+            problems.append("source manifest git_commit is not the original execution commit")
+        entry = next(
+            (
+                model for model in source_manifest.get("models") or []
+                if isinstance(model, dict) and model.get("slug") == qwen.slug
+            ),
+            None,
+        )
+        if entry is None:
+            problems.append(f"source manifest has no {qwen.slug} entry")
+        else:
+            for key, expected in (
+                ("index", qwen.index), ("slug", qwen.slug), ("repo", qwen.repo),
+                ("revision", qwen.revision), ("kind", qwen.kind),
+            ):
+                if entry.get(key) != expected:
+                    problems.append(f"source Qwen manifest {key} {entry.get(key)!r} != {expected!r}")
+            if entry.get("status") != "completed":
+                problems.append(f"source Qwen manifest status {entry.get('status')!r} != 'completed'")
+        problems += [
+            f"source Qwen: {problem}"
+            for problem in completed_model_problems(
+                qwen, source_dir, source_manifest, allow_legacy_source=True
+            )
+        ]
+        recorded_config = (source_manifest.get("config_sha256") or {}).get(qwen.slug)
+        if recorded_config != sha256_file(self.project_root / qwen.config):
+            problems.append("source Qwen config digest differs from the current config")
+        if source_manifest.get("python") != self.python:
+            problems.append(
+                f"source python {source_manifest.get('python')!r} != current {self.python!r}"
+            )
+        if source_manifest.get("environment") != summary["versions"]:
+            problems.append("source environment (pinned versions) differs from the current environment")
+        recorded_gpu = source_manifest.get("gpu") or {}
+        if recorded_gpu.get("name") != summary["gpu"]["name"]:
+            problems.append("source GPU name differs from the current GPU")
+        if abs(float(recorded_gpu.get("total_gib") or 0.0) - summary["gpu"]["total_gib"]) > 0.01:
+            problems.append("source GPU total memory differs from the current GPU")
+        if recorded_gpu.get("visible_devices") != summary["gpu"]["visible_devices"]:
+            problems.append("source visible device count differs from the current GPU")
+        recorded_data = source_manifest.get("data") or {}
+        if recorded_data.get("source") != str(self.data_dir):
+            problems.append("source frozen data directory differs from the current data dir")
+        recorded_splits = recorded_data.get("splits") or {}
+        for name, report in summary["data"].items():
+            recorded = recorded_splits.get(name) or {}
+            if recorded.get("sha256") != report.get("sha256") or recorded.get("rows") != report.get("rows"):
+                problems.append(f"source frozen {name} data differs from the current data")
+
+        evidence_sha256: dict[str, str] = {}
+        for relative in model_evidence_relative_paths(qwen):
+            path = source_dir / relative
+            if not path.is_file():
+                problems.append(f"source Qwen evidence missing: {relative}")
+                continue
+            if not evidence_content_matches(
+                self.project_root,
+                VISION_CONTINUATION_EVIDENCE_COMMIT,
+                f"{run_repo_dir(VISION_CONTINUATION_SOURCE_RUN)}/{relative}",
+                path,
+            ):
+                problems.append(
+                    f"source Qwen evidence does not match the pinned source blob: {relative}"
+                )
+                continue
+            evidence_sha256[relative] = sha256_file(path)
+        if problems:
+            raise RunnerError("vision continuation pre-check failed:\n  - " + "\n  - ".join(problems))
+
+        record = {
+            "kind": IMPORTED_QWEN_KIND,
+            "model": qwen.slug,
+            "source_run_id": VISION_CONTINUATION_SOURCE_RUN,
+            "source_path": run_repo_dir(VISION_CONTINUATION_SOURCE_RUN),
+            "source_git_commit": VISION_CONTINUATION_SOURCE_COMMIT,
+            "evidence_commit": VISION_CONTINUATION_EVIDENCE_COMMIT,
+            "evidence_paths": list(evidence_sha256),
+            "evidence_sha256": dict(evidence_sha256),
+            "reason": IMPORTED_QWEN_REASON,
+        }
+
+        self.root.mkdir(parents=True, exist_ok=True)
+        run_id = new_run_id(self.root)
+        run_dir = self.root / run_id
+        run_dir.mkdir(parents=True)
+        for relative in model_evidence_relative_paths(qwen):
+            destination = run_dir / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_dir / relative, destination)
+
+        copy_problems = imported_qwen_evidence_problems(self.project_root, run_dir, record)
+        if copy_problems:
+            raise RunnerError(
+                "imported Qwen copy verification failed:\n  - " + "\n  - ".join(copy_problems)
+            )
+
+        manifest = {
+            "track": TRACK,
+            "run_id": run_id,
+            "status": "running",
+            "created_at": utc_now(),
+            "finished_at": None,
+            "last_error": None,
+            "git_commit": probe_git_head(self.project_root),
+            "python": self.python,
+            "environment": summary["versions"],
+            "gpu": summary["gpu"],
+            "config_sha256": self._config_hashes(),
+            "config_snapshot_sha256": {
+                qwen.slug: (source_manifest.get("config_snapshot_sha256") or {}).get(qwen.slug)
+            },
+            "data": {"source": str(self.data_dir), "splits": summary["data"]},
+            "vram": {
+                "go_gib": VRAM_GO_GIB,
+                "repeat_max_gib": VRAM_REPEAT_MAX_GIB,
+                "total_gib": summary["gpu"]["total_gib"],
+            },
+            "gpu_sharing": gpu_sharing_metadata(),
+            "models": [
+                {
+                    "index": spec.index,
+                    "slug": spec.slug,
+                    "repo": spec.repo,
+                    "revision": spec.revision,
+                    "kind": spec.kind,
+                    "status": "completed" if spec.slug == qwen.slug else "pending",
+                    "failure": None,
+                    "run_info": str(Path("models") / spec.slug / "run_info.json"),
+                }
+                for spec in EXPECTED_MODELS
+            ],
+            "imported_qwen": record,
+        }
+        self.run_dir = run_dir
+        self.manifest = manifest
+        self.imported_qwen = record
+        self._finalize_manifest(manifest)
+        self.out(f"Vision continuation run: {run_dir}")
+        self.out(
+            f"Imported {len(evidence_sha256)} accepted Qwen evidence files from "
+            f"{VISION_CONTINUATION_SOURCE_RUN} (execution "
+            f"{VISION_CONTINUATION_SOURCE_COMMIT[:12]}, evidence "
+            f"{VISION_CONTINUATION_EVIDENCE_COMMIT[:12]}); models 2-4 remain pending"
+        )
+        return 0
+
     def _new_run(self) -> int:
         summary = self._invariant_check(manifest=None, require_clean_git=True)
         self.gpu = summary["gpu"]
@@ -3132,6 +3669,7 @@ class Runner:
                 "repeat_max_gib": VRAM_REPEAT_MAX_GIB,
                 "total_gib": summary["gpu"]["total_gib"],
             },
+            "gpu_sharing": gpu_sharing_metadata(),
             "models": [
                 {
                     "index": spec.index,
@@ -3191,6 +3729,32 @@ class Runner:
         self.run_dir = run_dir
         self.manifest = manifest
         self._resuming = True
+
+        # Imported Qwen provenance is validated deterministically before any
+        # manifest/run-file mutation; it is never combined with a compatibility
+        # deviation (the two one-time protocols stay separate).
+        self.imported_qwen = manifest.get("imported_qwen")
+        if self.imported_qwen is not None and (
+            self.approved_target is not None or manifest.get("compatibility_deviations")
+        ):
+            raise RunnerError(
+                "a run that imported Qwen cannot also record a compatibility deviation"
+            )
+        import_problems = imported_qwen_problems(self.project_root, run_dir, manifest)
+        if not import_problems and self.imported_qwen is not None:
+            import_problems = [
+                f"imported Qwen: {problem}"
+                for problem in completed_model_problems(
+                    spec_by_slug(VISION_CONTINUATION_MODEL),
+                    run_dir,
+                    manifest,
+                    allow_legacy_source=True,
+                )
+            ]
+        if import_problems:
+            raise RunnerError(
+                "imported Qwen validation failed:\n  - " + "\n  - ".join(import_problems)
+            )
 
         # All checks happen before any manifest/run-file mutation.
         pending_record = None
@@ -3464,6 +4028,13 @@ class Runner:
             "run_info_path": run_info_path,
             "log_dir": model_dir / "logs",
         }
+        # Retained phase-boundary observations live in run_info so a resume that
+        # skips completed GPU phases still has them; new samples append in place
+        # and are persisted by the existing atomic run_info saves.
+        shared = run_info.setdefault(
+            "shared_gpu", {"policy": GPU_SHARING_POLICY, "samples": []}
+        )
+        context["shared_samples"] = shared.setdefault("samples", [])
         run_info["status"] = "running"
         run_info.pop("failed_at", None)
         run_info.pop("failure", None)
@@ -3724,11 +4295,34 @@ class Runner:
 
     # -- subprocess phases ---------------------------------------------------- #
 
+    def _shared_observation(self, stage: str) -> dict:
+        observation = gpu_sharing_observation(float((self.gpu or {}).get("total_gib") or 0.0))
+        observation["stage"] = stage
+        return observation
+
+    def _shared_capacity(self, context: dict, since: int = 0) -> float:
+        """Conservative capacity: min over the applicable observations.
+
+        No fallback to the bare device total: without observations the runner
+        refuses to judge headroom, so a resume that skipped completed GPU phases
+        must still carry their retained samples (acceptance adds a fresh one).
+        """
+        samples = (context.get("shared_samples") or [])[since:]
+        if not samples:
+            raise RunnerError(
+                "no shared-GPU observations available; refusing to judge VRAM headroom"
+            )
+        return min(sample["effective_capacity_gib"] for sample in samples)
+
     def _run_subprocess(
         self, context: dict, phase: str, phase_arg: str, workspace: Path, extra,
         log_stem: str, attempt: int, config_path: Path | None = None,
     ) -> None:
         log_path = context["log_dir"] / f"{log_stem}-a{attempt}.log"
+        samples = context.setdefault("shared_samples", [])
+        # Point-in-time observations around the child: pre before launch, post
+        # once the child has exited (a failed child keeps its own retry policy).
+        samples.append(self._shared_observation(f"{log_stem}-pre"))
         code = run_phase_subprocess(
             python=self.python,
             phase=phase_arg,
@@ -3745,6 +4339,7 @@ class Runner:
                 phase, f"{phase_arg} exit code {code} ({reason})",
                 retryable=retryable, log=str(log_path),
             )
+        samples.append(self._shared_observation(f"{log_stem}-post"))
 
     # -- preflight ------------------------------------------------------------ #
 
@@ -3783,11 +4378,13 @@ class Runner:
             raise PhaseFailure("preflight", "; ".join(selection_problems), retryable=False)
 
         first_ws = attempt_dir / "first" / "ws"
+        attempt_start = len(context.setdefault("shared_samples", []))
         first_problems = self._preflight_tiny_run(context, attempt, data_dir, first_ws, "first")
         if first_problems:
             raise PhaseFailure("preflight", "first run invalid: " + "; ".join(first_problems),
                                retryable=False)
         first_metrics = self._read_preflight_metrics(first_ws)
+        first_capacity = self._shared_capacity(context, attempt_start)
         summary: dict = {
             "model": spec.slug,
             "repo": spec.repo,
@@ -3805,13 +4402,18 @@ class Runner:
             "first": run_summary(first_metrics, spec),
             "repeat": None,
             "total_gpu_gib": self.gpu["total_gib"] if self.gpu else None,
+            "shared_gpu": {
+                "policy": GPU_SHARING_POLICY,
+                "samples": context["shared_samples"][attempt_start:],
+                "effective_capacity_gib": first_capacity,
+            },
         }
         peaks = summary["first"]["peaks"]
         if peaks["problems"]:
             raise PhaseFailure("preflight", "invalid peak metrics: " + "; ".join(peaks["problems"]),
                                retryable=False)
         decision, reason = vram_decision(
-            peaks["reserved_gib"], summary["total_gpu_gib"],
+            peaks["reserved_gib"], first_capacity,
             offload=summary["first"]["offload"],
         )
         if decision == "repeat":
@@ -3829,8 +4431,11 @@ class Runner:
                     "preflight", "invalid repeat peak metrics: " + "; ".join(repeat_peaks["problems"]),
                     retryable=False,
                 )
+            repeat_capacity = self._shared_capacity(context, attempt_start)
+            summary["shared_gpu"]["samples"] = context["shared_samples"][attempt_start:]
+            summary["shared_gpu"]["effective_capacity_gib"] = repeat_capacity
             decision, reason = vram_decision(
-                peaks["reserved_gib"], summary["total_gpu_gib"],
+                peaks["reserved_gib"], repeat_capacity,
                 offload=summary["first"]["offload"] or summary["repeat"]["offload"],
                 repeat_gib=repeat_peaks["reserved_gib"],
             )
@@ -3885,6 +4490,14 @@ class Runner:
         preflight_path = context["model_dir"] / "preflight" / "preflight.json"
         preflight = read_json(preflight_path) if preflight_path.is_file() else {}
         repeat_approved = preflight.get("decision") == "go" and preflight.get("repeat") is not None
+        # Effective capacity (torch total capped by observed free memory minus the
+        # remaining RustDesk allowance), never the bare device total. A fresh
+        # current observation is taken here so a resume that skipped every GPU
+        # phase cannot bypass the available free memory / headroom gate; the
+        # minimum still includes all retained phase-boundary samples.
+        samples = context.setdefault("shared_samples", [])
+        samples.append(self._shared_observation("acceptance"))
+        capacity = self._shared_capacity(context)
         failures = acceptance_failures(
             spec=spec,
             baseline=baseline,
@@ -3895,7 +4508,7 @@ class Runner:
             finetuned_prediction_rows=count_csv_data_rows(workspace / "finetuned_predictions.csv"),
             workspace=workspace,
             vram_peak_reserved_gib=peaks["reserved_gib"],
-            vram_total_gib=self.gpu["total_gib"] if self.gpu else None,
+            vram_total_gib=capacity,
             vram_repeat_approved=repeat_approved,
             vram_peak_problems=peaks["problems"],
         )
@@ -3904,6 +4517,11 @@ class Runner:
             "status": "ok" if not failures else "failed",
             "failures": failures,
             "peaks": peaks,
+            "shared_gpu": {
+                "policy": GPU_SHARING_POLICY,
+                "samples": samples,
+                "effective_capacity_gib": capacity,
+            },
             "checked_at": utc_now(),
         }
         write_json_atomic(context["model_dir"] / "acceptance.json", record)
@@ -3912,28 +4530,39 @@ class Runner:
 
     def _cleanup(self, context: dict) -> None:
         spec = context["spec"]
+        # Same process policy as the phase boundaries; deletion needs no VRAM budget.
         before = probe_gpu_compute_processes()
-        if before:
+        before_state = classify_gpu_compute_processes(before)
+        before_busy = before_state["foreign"] or before_state["problems"]
+        if before_busy:
             raise PhaseFailure(
-                "cleanup", f"GPU busy before cleanup: {before}", retryable=False
+                "cleanup", f"GPU busy before cleanup: {before_busy}", retryable=False
             )
         result = delete_targets(
             cleanup_plan(self.run_dir, context["model_dir"], spec.slug, self.short_tmp_root),
             allowed_roots=(self.run_dir, self.short_tmp_root),
         )
         after = probe_gpu_compute_processes()
+        after_state = classify_gpu_compute_processes(after)
         record = {
-            "status": "ok" if not after else "gpu-busy",
+            "status": "ok" if after_state["ok"] else "gpu-busy",
             "model": spec.slug,
             "gpu_before": before,
             "gpu_after": after,
+            "gpu_sharing": {
+                "policy": GPU_SHARING_POLICY,
+                "allowed_executable": RUSTDESK_EXECUTABLE,
+                "allowance_mib": RUSTDESK_ALLOWANCE_MIB,
+                "before": before_state,
+                "after": after_state,
+            },
             "deleted": result,
             "completed_at": utc_now(),
         }
         write_json_atomic(context["model_dir"] / "cleanup.json", record)
         context["run_info"]["cleanup"] = record
         self._save_run_info(context)
-        if after:
+        if not after_state["ok"]:
             raise PhaseFailure(
                 "cleanup", f"GPU compute processes still active after cleanup: {after}",
                 retryable=False,
@@ -3965,6 +4594,14 @@ def build_parser() -> argparse.ArgumentParser:
             "20260916T120019Z at the target commit when only runner/test files changed"
         ),
     )
+    parser.add_argument(
+        "--init-vision-continuation", metavar="OLD_RUN", default=None,
+        help=(
+            "initialize a new run importing the accepted Qwen evidence from the "
+            f"vision-failure run {VISION_CONTINUATION_SOURCE_RUN} (one-time; runs "
+            "no model or phase subprocess, writes no LATEST)"
+        ),
+    )
     parser.add_argument("--select-rows", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--slug", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--config", default=None, help=argparse.SUPPRESS)
@@ -3986,6 +4623,16 @@ def main(argv: list[str] | None = None) -> int:
         except RunnerError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return 1
+    if args.init_vision_continuation and (
+        args.dry_run
+        or args.resume
+        or args.retry_failed
+        or args.approve_compatible_runner_change
+    ):
+        parser.error(
+            "--init-vision-continuation is mutually exclusive with --dry-run, "
+            "--resume, --retry-failed and --approve-compatible-runner-change"
+        )
     if args.retry_failed and not args.resume:
         parser.error("--retry-failed requires --resume")
     if args.approve_compatible_runner_change and not (args.resume and args.retry_failed):
@@ -3999,6 +4646,7 @@ def main(argv: list[str] | None = None) -> int:
         resume=args.resume,
         retry_failed=args.retry_failed,
         approve_compatible_runner_change=args.approve_compatible_runner_change,
+        init_vision_continuation=args.init_vision_continuation,
     )
     try:
         return runner.run()

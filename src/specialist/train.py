@@ -45,13 +45,26 @@ def normalize_target_modules(value):
     return list(value)
 
 
-def peft_kwargs(lora_cfg: dict, kind: str) -> dict:
-    """Fast*Model.get_peft_model kwargs; vision adds the four layer/module flags."""
+def peft_kwargs(lora_cfg: dict, kind: str, *, for_peft_call: bool = False) -> dict:
+    """Fast*Model.get_peft_model kwargs; vision adds the four layer/module flags.
+
+    With `for_peft_call=True` (the training call site), a vision config whose
+    resolved target_modules is the literal `"all-linear"` is passed as `None`:
+    Unsloth 2026.9.4 `FastVisionModel.get_peft_model` (unsloth/models/vision.py:
+    2231-2236) treats that literal as "force every finetune_* flag True" and
+    silently overrides `finetune_vision_layers=False`; `None` routes module
+    selection through `get_peft_regex` with the explicit flags instead. The
+    language path and the recorded metrics (default `for_peft_call=False`) keep
+    the requested value unchanged.
+    """
+    target_modules = normalize_target_modules(lora_cfg["target_modules"])
+    if for_peft_call and kind == "vision" and target_modules == "all-linear":
+        target_modules = None
     kwargs = {
         "r": int(lora_cfg["r"]),
         "lora_alpha": int(lora_cfg["alpha"]),
         "lora_dropout": float(lora_cfg["dropout"]),
-        "target_modules": normalize_target_modules(lora_cfg["target_modules"]),
+        "target_modules": target_modules,
         "bias": lora_cfg["bias"],
         "use_gradient_checkpointing": lora_cfg["gradient_checkpointing"],
         "random_state": int(lora_cfg["random_state"]),
@@ -352,7 +365,7 @@ def train(config: dict, workspace: str | Path) -> dict:
         model, load_in_4bit, context=f"Unsloth load of {model_id}"
     )
 
-    model = FastModel.get_peft_model(model, **peft_kwargs(lora_cfg, kind))
+    model = FastModel.get_peft_model(model, **peft_kwargs(lora_cfg, kind, for_peft_call=True))
 
     # Actual post-PEFT trainable parameter summary (vision-like names prove the
     # vision tower/projector really stayed frozen).

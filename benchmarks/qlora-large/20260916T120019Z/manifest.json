@@ -3,8 +3,8 @@
   "run_id": "20260916T120019Z",
   "status": "partial",
   "created_at": "2026-09-16T12:00:19.171458+00:00",
-  "finished_at": "2026-09-16T13:01:34.154926+00:00",
-  "last_error": "RunnerError: model 02-ministral-3-8b-instruct failed: preflight: selection exit code 1 (not in the transient allowlist)",
+  "finished_at": "2026-09-16T16:04:04.535600+00:00",
+  "last_error": "RunnerError: model 02-ministral-3-8b-instruct failed: preflight: first run invalid: 336 vision-like trainable parameters: ['base_model.model.model.vision_tower.transformer.layers.0.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.v_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.down_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.down_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.gate_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.gate_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.up_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.up_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.v_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.down_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.down_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.gate_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.gate_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.up_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.up_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.v_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.down_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.down_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.gate_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.gate_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.up_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.up_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.v_proj.lora_B.default.weight']",
   "git_commit": "385bbb957733e37d31627ff3f67e9931c95e6946",
   "python": "/home/tilakoid/miniconda3/envs/github-triage/bin/python3.11",
   "environment": {
@@ -84,7 +84,7 @@
       "status": "failed",
       "failure": {
         "phase": "preflight",
-        "error": "preflight: selection exit code 1 (not in the transient allowlist)",
+        "error": "preflight: first run invalid: 336 vision-like trainable parameters: ['base_model.model.model.vision_tower.transformer.layers.0.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.attention.v_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.down_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.down_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.gate_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.gate_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.up_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.0.feed_forward.up_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.attention.v_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.down_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.down_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.gate_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.gate_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.up_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.1.feed_forward.up_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.attention.v_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.down_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.down_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.gate_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.gate_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.up_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.10.feed_forward.up_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.k_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.k_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.o_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.o_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.q_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.q_proj.lora_B.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.v_proj.lora_A.default.weight', 'base_model.model.model.vision_tower.transformer.layers.11.attention.v_proj.lora_B.default.weight']",
         "retryable": false
       },
       "run_info": "models/02-ministral-3-8b-instruct/run_info.json"
@@ -110,5 +110,146 @@
       "run_info": "models/04-ministral-3-14b-instruct/run_info.json"
     }
   ],
-  "latest_written": false
+  "latest_written": false,
+  "effective_git_commit": "429d5ccd885ec9188e76ae1d2685e210e5b34e7f",
+  "compatibility_deviations": [
+    {
+      "id": "20260916T120019Z:429d5ccd885ec9188e76ae1d2685e210e5b34e7f:a8ebb651ad1d",
+      "kind": "compatible_runner_continuation",
+      "reason": "Runner-only fixes after the model2 preflight selection incident; user approved retaining the accepted Qwen model.",
+      "from": "385bbb957733e37d31627ff3f67e9931c95e6946",
+      "to": "429d5ccd885ec9188e76ae1d2685e210e5b34e7f",
+      "approved_at": "2026-09-16T15:56:04.437384+00:00",
+      "diff": {
+        "format": "git diff --binary --full-index --no-ext-diff",
+        "sha256": "a8ebb651ad1ddf0ec072445dfb7c91957566bc4a180caec8ff41c6a0bb42c64f",
+        "bytes": 237509,
+        "paths": [
+          "benchmarks/qlora-large/20260916T120019Z/manifest.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/acceptance.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/cleanup.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/config.yaml",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/preflight/preflight.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/preflight/selection.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/run_info.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/baseline_metrics.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/baseline_predictions.csv",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/comparison.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/finetuned_metrics.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/finetuned_predictions.csv",
+          "benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/train_metrics.json",
+          "benchmarks/qlora-large/20260916T120019Z/models/02-ministral-3-8b-instruct/config.yaml",
+          "benchmarks/qlora-large/20260916T120019Z/models/02-ministral-3-8b-instruct/run_info.json",
+          "scripts/run_qlora_large.py",
+          "tests/test_qlora_runner.py"
+        ]
+      },
+      "semantic_ids": {
+        "src": {
+          "origin": "dd287974ca4d86d073d6e4866006fdc3386db344",
+          "target": "dd287974ca4d86d073d6e4866006fdc3386db344",
+          "match": true
+        },
+        "configs/qlora-large": {
+          "origin": "73f2a0e171ebd681061bece9e79bf8a84736e2d7",
+          "target": "73f2a0e171ebd681061bece9e79bf8a84736e2d7",
+          "match": true
+        },
+        "pyproject.toml": {
+          "origin": "af27e0a0a532c71a1c71e893ab1257b275a6795e",
+          "target": "af27e0a0a532c71a1c71e893ab1257b275a6795e",
+          "match": true
+        }
+      },
+      "current": {
+        "config_sha256": {
+          "01-qwen3-8b": "2c0056cc831db1e8780a43bcb29cf31a7ff14c6178893a577d18cf5fca32fe7c",
+          "02-ministral-3-8b-instruct": "8892b46d27dc74ed86af9a6f3b62bc033aef08f8a109ede9d7e736642c2a9bc6",
+          "03-qwen3.5-9b": "0446abb169485cdbf0991f0945b31cb58f9165d42b565dfa5d89817ef896990c",
+          "04-ministral-3-14b-instruct": "dbcc92d9a0feb59241552e226a2f7fef0e0062038d96d8ffea89b8a9979b9f2c"
+        },
+        "data": {
+          "source": "/home/tilakoid/github-triage-data",
+          "splits": {
+            "train": {
+              "path": "/home/tilakoid/github-triage-data/train.jsonl",
+              "exists": true,
+              "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+              "rows": 1593
+            },
+            "val": {
+              "path": "/home/tilakoid/github-triage-data/val.jsonl",
+              "exists": true,
+              "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+              "rows": 200
+            },
+            "test": {
+              "path": "/home/tilakoid/github-triage-data/test.jsonl",
+              "exists": true,
+              "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+              "rows": 200
+            }
+          }
+        },
+        "environment": {
+          "python": "3.11.16",
+          "torch": "2.11.0+cu128",
+          "transformers": "5.5.0",
+          "peft": "0.20.0",
+          "datasets": "4.3.0",
+          "trl": "0.24.0",
+          "unsloth": "2026.9.4",
+          "unsloth_zoo": "2026.9.3",
+          "accelerate": "1.15.0",
+          "bitsandbytes": "0.50.2",
+          "tqdm": "4.70.1"
+        },
+        "python": "/home/tilakoid/miniconda3/envs/github-triage/bin/python3.11"
+      },
+      "retained_models": [
+        "01-qwen3-8b"
+      ],
+      "qwen_evidence_sha256": {
+        "models/01-qwen3-8b/run_info.json": "a9d740416dbb25478d49e3bf5d97b20cafd61a01f8207aea62122c15e938b3ac",
+        "models/01-qwen3-8b/acceptance.json": "eb5a31d9f94270b62c69a9cf3ba3ed39ef57d3142e194164c4328b1bca8a5b68",
+        "models/01-qwen3-8b/cleanup.json": "b515f3a16c777795111325e86a0d00d13734ff6ce48d5702d5dc8d0c724e9d95",
+        "models/01-qwen3-8b/config.yaml": "7d88407a7a632a4e60c4d00b9eab29031266f73bb98098b1d6ce1f6dc4d2f697",
+        "models/01-qwen3-8b/preflight/selection.json": "076fb682c42ad9fa108e40f7dc4b0cedfae995378cd8245c1725ccc162514265",
+        "models/01-qwen3-8b/preflight/preflight.json": "38039aa1c0201d94d904c98d1588133098d60cf4221ea763c344d44de8d7be4f",
+        "models/01-qwen3-8b/workspace/baseline_metrics.json": "3504a142b976022e90c9e1ba93386ccf39c104ebcc8aad66e22222fc81815d70",
+        "models/01-qwen3-8b/workspace/train_metrics.json": "f1fa1ebf793ccac39d85252cc2cbb88b6371302fa7682c569befc5fc1e598272",
+        "models/01-qwen3-8b/workspace/finetuned_metrics.json": "6db62f3bed3d2c5aa0f9c46919e367d0fa48cb53100c7039466178471a10b3db",
+        "models/01-qwen3-8b/workspace/baseline_predictions.csv": "fac56c8b01d7e797178757ce74caf5a2b8176c4e3acce5a7d33eff15655142fc",
+        "models/01-qwen3-8b/workspace/finetuned_predictions.csv": "6d03417df51a171dfae73052944732280de9a06ec0ca80188e42b9f0aba57571",
+        "models/01-qwen3-8b/workspace/comparison.json": "dbe6f35fd4fc609449bcb1184a46b6df167133f7ec7142349e16d399fe771dc6"
+      },
+      "legacy_selection_overlays": {
+        "01-qwen3-8b": {
+          "path": "models/01-qwen3-8b/preflight/selection.json",
+          "json_pointer": "/resolved_revision_source",
+          "effective_source": "legacy_unrecorded",
+          "reason": "selection.json predates resolved_revision_source recording",
+          "selection_sha256": "076fb682c42ad9fa108e40f7dc4b0cedfae995378cd8245c1725ccc162514265",
+          "nested": {
+            "path": "models/01-qwen3-8b/preflight/preflight.json",
+            "json_pointer": "/selection/resolved_revision_source",
+            "effective_source": "legacy_unrecorded",
+            "selection_sha256": "38039aa1c0201d94d904c98d1588133098d60cf4221ea763c344d44de8d7be4f",
+            "selection_matches_standalone": true
+          }
+        }
+      },
+      "retry_exception": {
+        "model": "02-ministral-3-8b-instruct",
+        "phase": "preflight",
+        "attempt": 1,
+        "original_retryable": false,
+        "error": "preflight: selection exit code 1 (not in the transient allowlist)",
+        "error_sha256": "3e8a98ca3dfebc22e470e7ba90ca954ca8f8cc15ae8e1b31c8f1108c3b97c9fe",
+        "log": "models/02-ministral-3-8b-instruct/logs/selection-a1.log",
+        "log_sha256": "b3a27a643b5b288eaee9dbd435c5acbb616163487b26b8185a2e4d378ba9994b"
+      },
+      "maximum_additional_attempts": 1
+    }
+  ]
 }

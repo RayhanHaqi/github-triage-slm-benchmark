@@ -474,6 +474,7 @@ class FakeTrack:
             mock.patch.object(runner_mod, "probe_disk_free_gib", return_value=120.0),
             mock.patch.object(runner_mod, "probe_gpu_identity", side_effect=lambda: dict(self.gpu)),
             mock.patch.object(runner_mod, "probe_gpu_compute_processes", return_value=[]),
+            mock.patch.object(runner_mod, "probe_gpu_free_mib", return_value=15830.0),
             mock.patch.object(runner_mod, "run_phase_subprocess", side_effect=self.phase),
             mock.patch.object(runner_mod, "run_selection_subprocess", side_effect=self.selection),
             mock.patch.object(runner_mod, "build_comparison", side_effect=self.comparison),
@@ -1765,7 +1766,7 @@ class DryRunTest(PatchedTrackTest):
         self.assertIn("GPU identity probe failed", str(ctx.exception))
 
         with mock.patch.object(
-            runner_mod, "probe_gpu_compute_processes", return_value=["123 python"]
+            runner_mod, "probe_gpu_compute_processes", return_value=["123, python, 512 MiB"]
         ):
             with self.assertRaises(runner_mod.RunnerError) as ctx:
                 self.track.runner(dry_run=True).run()
@@ -1798,6 +1799,13 @@ class PreflightGateTest(PatchedTrackTest):
         self.assertIsNotNone(preflight["repeat"])
         self.assertEqual(preflight["repeat"]["peaks"]["reserved_gib"], 13.75)
         self.assertEqual(preflight["decision"], "go")
+        self.assertEqual(preflight["total_gpu_gib"], self.track.gpu["total_gib"])
+        shared = preflight["shared_gpu"]
+        self.assertEqual(shared["policy"], runner_mod.GPU_SHARING_POLICY)
+        self.assertEqual(len(shared["samples"]), 12)
+        self.assertAlmostEqual(
+            shared["effective_capacity_gib"], (15830.0 - 512.0) / 1024.0
+        )
         self.assertEqual(len(preflight["token_lengths"]["train"]), 8)
         self.assertTrue(preflight["first"]["quantization"]["baseline"]["effective_load_in_4bit"])
         # repeat ran in a fresh directory
@@ -2504,18 +2512,42 @@ class ResumeTest(PatchedTrackTest):
 
 
 class CleanupPhaseTest(PatchedTrackTest):
+    @staticmethod
+    def enter(patches):
+        stack = ExitStack()
+        for patcher in patches:
+            stack.enter_context(patcher)
+        return stack
+
+    def busy_probe(self, probe, *, state):
+        """Probe callable is active only after `state['armed']` is set."""
+
+        def guarded():
+            return probe() if state["armed"] else []
+
+        return mock.patch.object(runner_mod, "probe_gpu_compute_processes", side_effect=guarded)
+
+    def arm_after_acceptance(self, state):
+        real_write = runner_mod.write_json_atomic
+
+        def write(path, data):
+            result = real_write(path, data)
+            if Path(path).name == "acceptance.json":
+                state["armed"] = True
+            return result
+
+        return mock.patch.object(runner_mod, "write_json_atomic", side_effect=write)
+
     def test_cleanup_probe_failure_fails_closed(self):
-        calls = {"n": 0}
+        state = {"armed": False}
 
-        def probe():
-            calls["n"] += 1
-            if calls["n"] > 2:
-                raise runner_mod.RunnerError("nvidia-smi broken")
-            return []
+        def broken():
+            raise runner_mod.RunnerError("nvidia-smi broken")
 
-        with mock.patch.object(runner_mod, "probe_gpu_compute_processes", side_effect=probe):
-            with self.assertRaises(runner_mod.RunnerError) as ctx:
-                self.track.runner().run()
+        stack = self.enter([self.arm_after_acceptance(state), self.busy_probe(broken, state=state)])
+        self.addCleanup(stack.close)
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.track.runner().run()
         self.assertIn("nvidia-smi broken", str(ctx.exception))
         run_dir = self.track.run_dir()
         model_dir = run_dir / "models" / "01-qwen3-8b"
@@ -2524,16 +2556,15 @@ class CleanupPhaseTest(PatchedTrackTest):
         self.assertEqual(run_info["failure"]["phase"], "cleanup")
 
     def test_gpu_busy_before_cleanup_blocks_deletion(self):
-        calls = {"n": 0}
+        state = {"armed": False}
+        row = "123, python, 512 MiB"
 
-        def probe():
-            calls["n"] += 1
-            # invariant checks pass; the pre-cleanup probe sees a foreign process
-            return ["123 python"] if calls["n"] > 2 else []
-
-        with mock.patch.object(runner_mod, "probe_gpu_compute_processes", side_effect=probe):
-            with self.assertRaises(runner_mod.RunnerError):
-                self.track.runner().run()
+        stack = self.enter(
+            [self.arm_after_acceptance(state), self.busy_probe(lambda: [row], state=state)]
+        )
+        self.addCleanup(stack.close)
+        with self.assertRaises(runner_mod.RunnerError):
+            self.track.runner().run()
         run_dir = self.track.run_dir()
         model_dir = run_dir / "models" / "01-qwen3-8b"
         self.assertFalse((model_dir / "cleanup.json").exists())
@@ -2544,19 +2575,27 @@ class CleanupPhaseTest(PatchedTrackTest):
         self.assertEqual(run_info["phases"]["cleanup"]["status"], "failed")
 
     def test_gpu_busy_after_cleanup_records_and_fails(self):
-        calls = {"n": 0}
+        state = {"armed": False}
+        row = "999, stale, 512 MiB"
+        real_delete = runner_mod.delete_targets
 
-        def probe():
-            calls["n"] += 1
-            return ["999 stale"] if calls["n"] > 3 else []
+        def delete(targets, *args, **kwargs):
+            result = real_delete(targets, *args, **kwargs)
+            if any("workspace" in str(target) for target in targets):
+                state["armed"] = True
+            return result
 
-        with mock.patch.object(runner_mod, "probe_gpu_compute_processes", side_effect=probe):
-            with self.assertRaises(runner_mod.RunnerError):
-                self.track.runner().run()
+        stack = self.enter([
+            mock.patch.object(runner_mod, "delete_targets", side_effect=delete),
+            self.busy_probe(lambda: [row], state=state),
+        ])
+        self.addCleanup(stack.close)
+        with self.assertRaises(runner_mod.RunnerError):
+            self.track.runner().run()
         run_dir = self.track.run_dir()
         record = runner_mod.read_json(run_dir / "models" / "01-qwen3-8b" / "cleanup.json")
         self.assertEqual(record["status"], "gpu-busy")
-        self.assertEqual(record["gpu_after"], ["999 stale"])
+        self.assertEqual(record["gpu_after"], [row])
         self.assertGreater(record["deleted"]["bytes_deleted"], 0)
 
     def test_cleanup_phase_order_and_record(self):
@@ -3448,7 +3487,7 @@ class CompatibilityApprovalTest(PatchedTrackTest):
         before = self.manifest_bytes()
         self.enter(self.track.approved_patches())
         with mock.patch.object(
-            runner_mod, "probe_gpu_compute_processes", return_value=["123 python"]
+            runner_mod, "probe_gpu_compute_processes", return_value=["123, python, 512 MiB"]
         ):
             with self.assertRaises(runner_mod.RunnerError) as ctx:
                 self.resume(approve_compatible_runner_change=self.target).run()
@@ -3688,6 +3727,687 @@ class CompatibilityRuntimeTest(PatchedTrackTest):
         self.write_record(record)
         message = self.assert_refused("qwen evidence")
         self.assertIn("acceptance.json status", message)
+
+
+class VisionContinuationTest(PatchedTrackTest):
+    """One-time Qwen import into a NEW run; the source run stays byte-identical."""
+
+    track_class = FakeApprovedRun
+
+    def setUp(self):
+        super().setUp()
+        self.source = self.track.run_dir
+        self.enter(self.track.approved_patches())
+
+    def enter(self, patches):
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        for patcher in patches:
+            stack.enter_context(patcher)
+
+    def source_files(self) -> dict[str, bytes]:
+        return {
+            str(path.relative_to(self.source)): path.read_bytes()
+            for path in self.source.rglob("*")
+            if path.is_file()
+        }
+
+    def new_run_dirs(self) -> list[Path]:
+        return [
+            path for path in self.track.root.iterdir()
+            if path.is_dir() and path.name != FakeApprovedRun.RUN_ID
+        ]
+
+    def new_run_dir(self) -> Path:
+        dirs = self.new_run_dirs()
+        self.assertEqual(len(dirs), 1, dirs)
+        return dirs[0]
+
+    def init(self, **kwargs):
+        kwargs.setdefault("init_vision_continuation", str(self.source))
+        return self.track.runner(**kwargs)
+
+    def resume(self, run_dir, **kwargs):
+        kwargs.setdefault("resume", run_dir)
+        kwargs.setdefault("retry_failed", True)
+        return self.track.runner(**kwargs)
+
+    def test_import_init_then_resume_runs_zero_qwen_phases(self):
+        source_before = self.source_files()
+        self.assertEqual(self.init().run(), 0)
+        run_dir = self.new_run_dir()
+        qwen = runner_mod.spec_by_slug(runner_mod.VISION_CONTINUATION_MODEL)
+        manifest = runner_mod.read_json(run_dir / "manifest.json")
+
+        self.assertEqual(manifest["status"], "partial")
+        self.assertEqual(
+            [model["slug"] for model in manifest["models"]],
+            [spec.slug for spec in runner_mod.EXPECTED_MODELS],
+        )
+        self.assertEqual(
+            [model["status"] for model in manifest["models"]],
+            ["completed", "pending", "pending", "pending"],
+        )
+        self.assertNotIn("effective_git_commit", manifest)
+        self.assertNotIn("compatibility_deviations", manifest)
+        self.assertEqual(manifest["git_commit"], FakeApprovedRun.TARGET)
+        self.assertEqual(manifest["config_sha256"], self.track.manifest["config_sha256"])
+        self.assertEqual(
+            manifest["config_snapshot_sha256"],
+            {qwen.slug: self.track.manifest["config_snapshot_sha256"][qwen.slug]},
+        )
+        record = manifest["imported_qwen"]
+        self.assertEqual(sorted(record), sorted(runner_mod.IMPORTED_QWEN_KEYS))
+        self.assertEqual(record["kind"], runner_mod.IMPORTED_QWEN_KIND)
+        self.assertEqual(record["model"], qwen.slug)
+        self.assertEqual(record["source_run_id"], runner_mod.VISION_CONTINUATION_SOURCE_RUN)
+        self.assertEqual(record["source_path"], runner_mod.run_repo_dir())
+        self.assertEqual(record["source_git_commit"], FakeApprovedRun.ORIGIN)
+        self.assertEqual(
+            record["evidence_commit"], runner_mod.VISION_CONTINUATION_EVIDENCE_COMMIT
+        )
+        self.assertEqual(
+            record["evidence_paths"], runner_mod.model_evidence_relative_paths(qwen)
+        )
+        self.assertEqual(record["evidence_sha256"], self.track.qwen_evidence)
+        self.assertTrue(record["reason"])
+        self.assertEqual(self.track.calls, [])
+        self.assertFalse((self.track.root / "LATEST").exists())
+
+        for relative in runner_mod.model_evidence_relative_paths(qwen):
+            copied, original = run_dir / relative, self.source / relative
+            self.assertFalse(copied.is_symlink())
+            self.assertEqual(copied.read_bytes(), original.read_bytes())
+        # shutil.copy2, not a hardlink: the new inode never aliases the source.
+        self.assertNotEqual(
+            (run_dir / "models" / qwen.slug / "run_info.json").stat().st_ino,
+            (self.source / "models" / qwen.slug / "run_info.json").stat().st_ino,
+        )
+        self.assertEqual(self.source_files(), source_before)
+
+        # Ordinary resume (supervisor flags empty): Qwen is skipped entirely;
+        # models 2-4 run their first attempt.
+        self.track.calls.clear()
+        self.assertEqual(self.track.runner(resume=run_dir).run(), 0)
+        self.assertFalse([call for call in self.track.calls if call[0] == qwen.slug])
+        for spec in runner_mod.EXPECTED_MODELS[1:]:
+            self.assertEqual(
+                [stem for slug, stem in self.track.calls if slug == spec.slug],
+                [
+                    "preflight-first-train", "preflight-first-baseline",
+                    "preflight-first-adapter", "baseline", "train", "adapter_eval",
+                ],
+                spec.slug,
+            )
+        resumed = runner_mod.read_json(run_dir / "manifest.json")
+        self.assertEqual([model["status"] for model in resumed["models"]], ["completed"] * 4)
+        self.assertEqual(resumed["imported_qwen"], record)
+        self.assertEqual(
+            set(resumed["config_snapshot_sha256"]),
+            {spec.slug for spec in runner_mod.EXPECTED_MODELS},
+        )
+        incident = runner_mod.read_json(
+            run_dir / "models" / runner_mod.KNOWN_INCIDENT_MODEL / "run_info.json"
+        )
+        self.assertEqual(
+            [attempt["attempt"] for attempt in incident["phases"]["preflight"]["attempts"]],
+            [1],
+        )
+        self.assertEqual(
+            (run_dir / "models" / qwen.slug / "run_info.json").read_bytes(),
+            (self.source / "models" / qwen.slug / "run_info.json").read_bytes(),
+        )
+        self.assertNotIn(
+            "shared_gpu",
+            runner_mod.read_json(run_dir / "models" / qwen.slug / "run_info.json"),
+        )
+        self.assertEqual(self.source_files(), source_before)
+
+    def test_resume_refuses_import_tampering_before_mutation(self):
+        self.assertEqual(self.init().run(), 0)
+        run_dir = self.new_run_dir()
+        manifest_path = run_dir / "manifest.json"
+        manifest_bytes = manifest_path.read_bytes()
+        qwen = runner_mod.spec_by_slug(runner_mod.VISION_CONTINUATION_MODEL)
+        relative = f"models/{qwen.slug}/workspace/comparison.json"
+        original = (run_dir / relative).read_bytes()
+
+        def assert_refused(marker: str) -> None:
+            self.track.calls.clear()
+            before = manifest_path.read_bytes()
+            qwen_run_info = run_dir / "models" / qwen.slug / "run_info.json"
+            run_info_before = qwen_run_info.read_bytes()
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(run_dir).run()
+            self.assertIn(marker, str(ctx.exception))
+            self.assertEqual(manifest_path.read_bytes(), before)
+            self.assertEqual(qwen_run_info.read_bytes(), run_info_before)
+            self.assertEqual(self.track.calls, [])
+
+        # Corrupted copy: deterministic blob/digest checks, not the record alone.
+        (run_dir / relative).write_bytes(original + b" ")
+        assert_refused("imported Qwen evidence")
+        (run_dir / relative).write_bytes(original)
+
+        def with_record(mutate, marker: str) -> None:
+            manifest = runner_mod.read_json(manifest_path)
+            mutate(manifest)
+            runner_mod.write_json_atomic(manifest_path, manifest)
+            assert_refused(marker)
+            manifest_path.write_bytes(manifest_bytes)
+
+        def drop(key):
+            return lambda manifest: manifest["imported_qwen"].pop(key)
+
+        with_record(lambda m: m["imported_qwen"].__setitem__("evidence_commit", "f" * 40),
+                    "evidence_commit")
+        with_record(lambda m: m["imported_qwen"].__setitem__("source_path", "elsewhere"),
+                    "source_path")
+        with_record(lambda m: m["imported_qwen"].__setitem__("source_run_id", "other"),
+                    "source_run_id")
+        with_record(lambda m: m["imported_qwen"].__setitem__("source_git_commit", "f" * 40),
+                    "source_git_commit")
+        with_record(lambda m: m["imported_qwen"].__setitem__("model", "02-ministral-3-8b-instruct"),
+                    "model")
+        with_record(lambda m: m["imported_qwen"].__setitem__("kind", "forged"), "kind")
+        with_record(drop("reason"), "keys differ")
+        with_record(drop("evidence_sha256"), "keys differ")
+        with_record(lambda m: m["imported_qwen"].__setitem__("extra", 1), "keys differ")
+        with_record(lambda m: m["imported_qwen"].__setitem__("evidence_paths", []),
+                    "evidence_paths")
+        with_record(
+            lambda m: m["imported_qwen"]["evidence_sha256"].__setitem__(relative, "0" * 64),
+            "digest != recorded digest",
+        )
+        with_record(lambda m: m["models"][0].__setitem__("status", "pending"), "entry status")
+        with_record(lambda m: m.pop("imported_qwen"), "metadata is missing")
+
+        # A clean resume still skips the accepted Qwen.
+        self.track.calls.clear()
+        self.assertEqual(self.resume(run_dir).run(), 0)
+        self.assertFalse([call for call in self.track.calls if call[0] == qwen.slug])
+
+    def test_invariant_guard_refuses_import_corruption_before_later_models(self):
+        self.assertEqual(self.init().run(), 0)
+        run_dir = self.new_run_dir()
+        relative = (
+            f"models/{runner_mod.VISION_CONTINUATION_MODEL}/workspace/train_metrics.json"
+        )
+        path = run_dir / relative
+        original = path.read_bytes()
+        real_phase = self.track.phase
+
+        def corrupting_phase(**kwargs):
+            code = real_phase(**kwargs)
+            if (
+                kwargs.get("phase") == "baseline"
+                and runner_mod.KNOWN_INCIDENT_MODEL in str(kwargs.get("workspace"))
+            ):
+                path.write_bytes(original + b" ")
+            return code
+
+        with mock.patch.object(
+            runner_mod, "run_phase_subprocess", side_effect=corrupting_phase
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(run_dir).run()
+        self.assertIn("imported Qwen", str(ctx.exception))
+        self.assertFalse(
+            [call for call in self.track.calls if call[0] == runner_mod.VISION_CONTINUATION_MODEL]
+        )
+
+    def test_gpu_busy_refuses_imported_resume_before_mutation(self):
+        self.assertEqual(self.init().run(), 0)
+        run_dir = self.new_run_dir()
+        manifest_path = run_dir / "manifest.json"
+        before = manifest_path.read_bytes()
+        self.track.calls.clear()
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", return_value=["123, python, 512 MiB"]
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.resume(run_dir).run()
+        self.assertIn("foreign GPU", str(ctx.exception))
+        self.assertEqual(manifest_path.read_bytes(), before)
+        self.assertEqual(self.track.calls, [])
+
+    def test_mutable_rustdesk_pid_and_use_do_not_break_init_or_resume(self):
+        allowed_exe = str(Path(runner_mod.RUSTDESK_EXECUTABLE).resolve())
+        current = {"row": "111, rustdesk, 100 MiB"}
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", side_effect=lambda: [current["row"]]
+        ), mock.patch.object(runner_mod, "read_proc_exe", return_value=allowed_exe):
+            self.assertEqual(self.init().run(), 0)
+            run_dir = self.new_run_dir()
+            current["row"] = "222, rustdesk, 300 MiB"
+            self.assertEqual(self.track.runner(resume=run_dir).run(), 0)
+        manifest = runner_mod.read_json(run_dir / "manifest.json")
+        # Immutable GPU identity is untouched by mutable RustDesk state.
+        self.assertEqual(manifest["gpu"], self.track.manifest["gpu"])
+        self.assertEqual(manifest["imported_qwen"]["source_git_commit"], FakeApprovedRun.ORIGIN)
+        self.assertEqual(manifest["gpu_sharing"]["policy"], runner_mod.GPU_SHARING_POLICY)
+
+    def test_init_refuses_wrong_or_tampered_source(self):
+        for value in (
+            "20260915T100825Z",
+            str(self.track.root / "20260915T100825Z"),
+            str(self.track.root / runner_mod.VISION_CONTINUATION_SOURCE_RUN / "extra"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.init(init_vision_continuation=value).run()
+            self.assertIn("vision continuation source refused", str(ctx.exception))
+        self.assertEqual(self.new_run_dirs(), [])
+
+        # Same name, wrong namespace (outside the track root).
+        outside = Path(self.tmp.name) / "outside" / runner_mod.VISION_CONTINUATION_SOURCE_RUN
+        outside.mkdir(parents=True)
+        with self.assertRaises(runner_mod.RunnerError):
+            self.init(init_vision_continuation=str(outside)).run()
+        # Same name, symlinked source.
+        link = Path(self.tmp.name) / "link" / runner_mod.VISION_CONTINUATION_SOURCE_RUN
+        link.parent.mkdir()
+        link.symlink_to(self.source)
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.init(init_vision_continuation=str(link)).run()
+        self.assertIn("symlink", str(ctx.exception))
+        self.assertEqual(self.new_run_dirs(), [])
+
+        # Tampered source evidence or manifest refuses before any copy.
+        evidence = self.source / "models" / runner_mod.VISION_CONTINUATION_MODEL / "workspace" / "baseline_predictions.csv"
+        evidence_bytes = evidence.read_bytes()
+        evidence.write_bytes(evidence_bytes + b"\n")
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.init().run()
+        self.assertIn("pinned source blob", str(ctx.exception))
+        evidence.write_bytes(evidence_bytes)
+
+        manifest_path = self.source / "manifest.json"
+        manifest_bytes = manifest_path.read_bytes()
+        manifest = runner_mod.read_json(manifest_path)
+        manifest["git_commit"] = "f" * 40
+        runner_mod.write_json_atomic(manifest_path, manifest)
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.init().run()
+        self.assertIn("original execution commit", str(ctx.exception))
+        manifest_path.write_bytes(manifest_bytes)
+        self.assertEqual(self.new_run_dirs(), [])
+
+        # The bare restricted run id is accepted.
+        self.assertEqual(self.init(init_vision_continuation=FakeApprovedRun.RUN_ID).run(), 0)
+        self.assertEqual(len(self.new_run_dirs()), 1)
+
+    def test_failed_init_leaves_no_resumable_import(self):
+        real_copy2 = runner_mod.shutil.copy2
+        calls = {"n": 0}
+
+        def flaky_copy2(src, dst, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] > 3:
+                raise OSError("simulated copy failure")
+            return real_copy2(src, dst, *args, **kwargs)
+
+        with mock.patch.object(runner_mod.shutil, "copy2", side_effect=flaky_copy2):
+            with self.assertRaises(OSError):
+                self.init().run()
+        run_dir = self.new_run_dir()
+        self.assertFalse((run_dir / "manifest.json").exists())
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.resume(run_dir).run()
+        self.assertIn("no manifest.json", str(ctx.exception))
+
+    def test_cli_rejects_conflicting_flags(self):
+        for extra in (
+            ["--dry-run"],
+            ["--resume", "x"],
+            ["--retry-failed"],
+            ["--approve-compatible-runner-change", "f" * 40],
+        ):
+            with self.assertRaises(SystemExit):
+                runner_mod.main(
+                    ["--init-vision-continuation", FakeApprovedRun.RUN_ID, *extra]
+                )
+
+
+class GpuSharingPolicyTest(unittest.TestCase):
+    """Approved RustDesk sharing: strict parsing, exact exe match, bounded budget."""
+
+    @staticmethod
+    def proc_exe(tmp: Path, pid: int, target: Path) -> Path:
+        proc_root = tmp / "proc"
+        link = proc_root / str(pid) / "exe"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(target)
+        return proc_root
+
+    def test_strict_memory_parsing(self):
+        for text, expected in (
+            ("512 MiB", 512.0),
+            ("0 MiB", 0.0),
+            ("12.5 MiB", 12.5),
+            ("512", 512.0),
+        ):
+            self.assertEqual(runner_mod.parse_used_memory_mib(text), expected, text)
+        for text in ("N/A", "-1 MiB", "nan MiB", "inf MiB", "512 GiB", "", "abc", "1e3 MiB"):
+            self.assertIsNone(runner_mod.parse_used_memory_mib(text), text)
+
+    def test_strict_free_memory_parsing_fails_closed(self):
+        self.assertEqual(runner_mod.parse_gpu_free_mib("15830\n"), 15830.0)
+        for text in ("N/A", "-5", "nan", "", "15,830 MiB"):
+            with self.assertRaises(runner_mod.RunnerError):
+                runner_mod.parse_gpu_free_mib(text)
+
+    def test_free_memory_probe_fails_closed(self):
+        with mock.patch.object(runner_mod.subprocess, "run", side_effect=OSError("no nvidia-smi")):
+            with self.assertRaises(runner_mod.RunnerError):
+                runner_mod.probe_gpu_free_mib()
+        result = mock.Mock(returncode=1, stdout="", stderr="driver error")
+        with mock.patch.object(runner_mod.subprocess, "run", return_value=result):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                runner_mod.probe_gpu_free_mib()
+        self.assertIn("exit code 1", str(ctx.exception))
+        result = mock.Mock(returncode=0, stdout="N/A\n", stderr="")
+        with mock.patch.object(runner_mod.subprocess, "run", return_value=result):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                runner_mod.probe_gpu_free_mib()
+        self.assertIn("malformed", str(ctx.exception))
+
+    def test_exact_executable_allowed_and_basename_spoof_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            allowed = tmp / "bin" / "rustdesk"
+            allowed.parent.mkdir()
+            allowed.write_bytes(b"binary")
+            impostor = tmp / "other" / "rustdesk"
+            impostor.parent.mkdir()
+            impostor.write_bytes(b"binary")
+            with mock.patch.object(runner_mod, "RUSTDESK_EXECUTABLE", str(allowed)):
+                state = runner_mod.classify_gpu_compute_processes(
+                    ["111, rustdesk, 257 MiB"], self.proc_exe(tmp, 111, allowed)
+                )
+                self.assertTrue(state["ok"], state)
+                self.assertEqual(
+                    state["allowed"],
+                    [{"pid": 111, "exe": str(allowed.resolve()), "used_mib": 257.0}],
+                )
+                spoof = runner_mod.classify_gpu_compute_processes(
+                    ["222, rustdesk, 257 MiB"], self.proc_exe(tmp, 222, impostor)
+                )
+                self.assertFalse(spoof["ok"])
+                self.assertEqual(spoof["foreign"], ["222, rustdesk, 257 MiB"])
+
+    def test_unverifiable_pid_and_malformed_memory_fail_closed(self):
+        with tempfile.TemporaryDirectory() as raw:
+            proc_root = Path(raw) / "proc"  # no pid maps to an executable
+            with mock.patch.object(
+                runner_mod, "RUSTDESK_EXECUTABLE", str(Path(raw) / "rustdesk")
+            ):
+                for rows in (
+                    ["77, rustdesk, 1 MiB"],
+                    ["77, rustdesk, N/A"],
+                    ["77, rustdesk, -5 MiB"],
+                    ["77, rustdesk, 1e3 MiB"],
+                    ["not-a-pid, rustdesk, 1 MiB"],
+                    ["77, rustdesk"],
+                ):
+                    state = runner_mod.classify_gpu_compute_processes(rows, proc_root)
+                    self.assertFalse(state["ok"], rows)
+
+    def test_other_process_and_aggregate_allowance_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            allowed = tmp / "rustdesk"
+            allowed.write_bytes(b"x")
+            proc_root = self.proc_exe(tmp, 10, allowed)
+            self.proc_exe(tmp, 11, allowed)
+            with mock.patch.object(runner_mod, "RUSTDESK_EXECUTABLE", str(allowed)):
+                state = runner_mod.classify_gpu_compute_processes(
+                    ["10, rustdesk, 100 MiB", "20, python, 3000 MiB"], proc_root
+                )
+                self.assertFalse(state["ok"])
+                self.assertEqual(state["foreign"], ["20, python, 3000 MiB"])
+                state = runner_mod.classify_gpu_compute_processes(
+                    ["10, rustdesk, 300 MiB", "11, rustdesk, 300 MiB"], proc_root
+                )
+                self.assertFalse(state["ok"])
+                self.assertTrue(any("allowance" in problem for problem in state["problems"]))
+
+    def observation(self, rows, free_mib, total_gib=15.0):
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", return_value=rows
+        ), mock.patch.object(runner_mod, "probe_gpu_free_mib", return_value=free_mib):
+            return runner_mod.gpu_sharing_observation(total_gib)
+
+    def test_observation_reserves_only_remaining_allowance(self):
+        allowed_exe = str(Path(runner_mod.RUSTDESK_EXECUTABLE).resolve())
+        with mock.patch.object(runner_mod, "read_proc_exe", return_value=allowed_exe):
+            observation = self.observation(["1, rustdesk, 257 MiB"], 14000.0)
+        self.assertAlmostEqual(observation["rustdesk_used_mib"], 257.0)
+        self.assertAlmostEqual(observation["remaining_allowance_mib"], 255.0)
+        self.assertAlmostEqual(observation["free_mib"], 14000.0)
+        self.assertAlmostEqual(
+            observation["effective_capacity_gib"], min(15.0, (14000.0 - 255.0) / 1024.0)
+        )
+        self.assertEqual(observation["policy"], runner_mod.GPU_SHARING_POLICY)
+
+    def test_observation_without_rustdesk_reserves_full_allowance(self):
+        observation = self.observation([], 15000.0)
+        self.assertAlmostEqual(
+            observation["effective_capacity_gib"], min(15.0, (15000.0 - 512.0) / 1024.0)
+        )
+
+    def test_observation_refuses_foreign_process_and_negative_budget(self):
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", return_value=["9, python, 1 MiB"]
+        ), mock.patch.object(runner_mod, "probe_gpu_free_mib", return_value=15000.0):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                runner_mod.gpu_sharing_observation(15.0)
+        self.assertIn("policy violation", str(ctx.exception))
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", return_value=[]
+        ), mock.patch.object(runner_mod, "probe_gpu_free_mib", return_value=300.0):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                runner_mod.gpu_sharing_observation(15.0)
+        self.assertIn("not positive", str(ctx.exception))
+
+    def test_observation_probe_failure_and_metadata_notes(self):
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", return_value=[]
+        ), mock.patch.object(
+            runner_mod, "probe_gpu_free_mib",
+            side_effect=runner_mod.RunnerError("free probe down"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                runner_mod.gpu_sharing_observation(15.0)
+        self.assertIn("free probe down", str(ctx.exception))
+        metadata = runner_mod.gpu_sharing_metadata()
+        self.assertEqual(metadata["policy"], runner_mod.GPU_SHARING_POLICY)
+        self.assertEqual(metadata["allowed_executable"], runner_mod.RUSTDESK_EXECUTABLE)
+        self.assertEqual(metadata["allowance_mib"], runner_mod.RUSTDESK_ALLOWANCE_MIB)
+        self.assertTrue(any("not directly comparable" in note for note in metadata["notes"]))
+        self.assertTrue(any("not continuous" in note for note in metadata["notes"]))
+
+
+class GpuSharingTrackTest(PatchedTrackTest):
+    """Runner-level enforcement: same policy for phases, acceptance and cleanup."""
+
+    qwen = "01-qwen3-8b"
+
+    def test_policy_and_budget_recorded(self):
+        self.assertEqual(self.track.runner().run(), 0)
+        run_dir = self.track.run_dir()
+        policy = runner_mod.read_json(run_dir / "manifest.json")["gpu_sharing"]
+        self.assertEqual(policy["policy"], runner_mod.GPU_SHARING_POLICY)
+        self.assertEqual(policy["allowed_executable"], runner_mod.RUSTDESK_EXECUTABLE)
+        self.assertEqual(policy["allowance_mib"], runner_mod.RUSTDESK_ALLOWANCE_MIB)
+        self.assertTrue(any("not directly comparable" in note for note in policy["notes"]))
+        model_dir = run_dir / "models" / self.qwen
+        preflight = runner_mod.read_json(model_dir / "preflight" / "preflight.json")
+        self.assertEqual(len(preflight["shared_gpu"]["samples"]), 6)
+        self.assertAlmostEqual(
+            preflight["shared_gpu"]["effective_capacity_gib"], (15830.0 - 512.0) / 1024.0
+        )
+        acceptance = runner_mod.read_json(model_dir / "acceptance.json")
+        self.assertEqual(len(acceptance["shared_gpu"]["samples"]), 13)
+        self.assertAlmostEqual(
+            acceptance["shared_gpu"]["effective_capacity_gib"], (15830.0 - 512.0) / 1024.0
+        )
+        self.assertEqual(acceptance["shared_gpu"]["samples"][-1]["stage"], "acceptance")
+        run_info = runner_mod.read_json(model_dir / "run_info.json")
+        self.assertEqual(
+            run_info["shared_gpu"]["samples"], acceptance["shared_gpu"]["samples"]
+        )
+
+    def test_reduced_free_memory_stops_preflight(self):
+        self.track.peak_plan[(self.qwen, "preflight-first-baseline")] = (13.6, 13.7)
+        with mock.patch.object(runner_mod, "probe_gpu_free_mib", return_value=11000.0):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner().run()
+        self.assertIn("headroom", str(ctx.exception))
+        run_dir = self.track.run_dir()
+        self.assertNotIn((self.qwen, "baseline"), self.track.calls)
+        preflight = runner_mod.read_json(
+            run_dir / "models" / self.qwen / "preflight" / "preflight.json"
+        )
+        self.assertEqual(preflight["shared_gpu"]["samples"][0]["free_mib"], 11000.0)
+        self.assertAlmostEqual(
+            preflight["shared_gpu"]["effective_capacity_gib"], (11000.0 - 512.0) / 1024.0
+        )
+        self.assertEqual(preflight["decision"], "stop")
+
+    def test_free_memory_probe_failure_fails_closed(self):
+        with mock.patch.object(
+            runner_mod, "probe_gpu_free_mib",
+            side_effect=runner_mod.RunnerError("free probe down"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner().run()
+        self.assertIn("free probe down", str(ctx.exception))
+        run_dir = self.track.run_dir()
+        manifest = runner_mod.read_json(run_dir / "manifest.json")
+        self.assertEqual(manifest["models"][0]["status"], "failed")
+        self.assertNotIn((self.qwen, "baseline"), self.track.calls)
+
+    def test_allowed_rustdesk_passes_and_cleanup_records_it(self):
+        allowed_exe = str(Path(runner_mod.RUSTDESK_EXECUTABLE).resolve())
+        row = "4242, rustdesk, 257 MiB"
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes", return_value=[row]
+        ), mock.patch.object(runner_mod, "read_proc_exe", return_value=allowed_exe):
+            self.assertEqual(self.track.runner().run(), 0)
+        run_dir = self.track.run_dir()
+        for spec in runner_mod.EXPECTED_MODELS:
+            cleanup = runner_mod.read_json(run_dir / "models" / spec.slug / "cleanup.json")
+            self.assertEqual(cleanup["status"], "ok")
+            self.assertEqual(cleanup["gpu_before"], [row])
+            self.assertEqual(cleanup["gpu_after"], [row])
+            allowed = cleanup["gpu_sharing"]["before"]["allowed"]
+            self.assertEqual(allowed, [{"pid": 4242, "exe": allowed_exe, "used_mib": 257.0}])
+            self.assertFalse(
+                any("rustdesk" in target["path"] for target in cleanup["deleted"]["targets"])
+            )
+
+    def crash_before_acceptance(self, *, free_mib, peak_plan=None):
+        """Run model1 through adapter_eval, then hard-interrupt at comparison."""
+        for key, value in (peak_plan or {}).items():
+            self.track.peak_plan[key] = value
+
+        def crashing(workspace, config):
+            raise KeyboardInterrupt
+
+        with mock.patch.object(
+            runner_mod, "probe_gpu_free_mib", return_value=free_mib
+        ), mock.patch.object(runner_mod, "build_comparison", side_effect=crashing):
+            with self.assertRaises(KeyboardInterrupt):
+                self.track.runner().run()
+        return self.track.run_dir()
+
+    def test_resume_after_completed_gpu_phases_keeps_retained_budget(self):
+        run_dir = self.crash_before_acceptance(
+            free_mib=13000.0, peak_plan={(self.qwen, "train"): (12.0, 12.5)}
+        )
+        model_dir = run_dir / "models" / self.qwen
+        run_info = runner_mod.read_json(model_dir / "run_info.json")
+        retained = run_info["shared_gpu"]["samples"]
+        self.assertTrue(retained)
+        retained_capacity = min(s["effective_capacity_gib"] for s in retained)
+        self.assertAlmostEqual(retained_capacity, (13000.0 - 512.0) / 1024.0)
+
+        # Genuine context recreation: completed GPU phases are skipped without
+        # new observations and the fresh acceptance observation is ample, but
+        # the retained lower budget still caps headroom.
+        with self.assertRaises(runner_mod.RunnerError) as ctx:
+            self.track.runner(resume=run_dir, retry_failed=True).run()
+        self.assertIn("headroom", str(ctx.exception))
+        acceptance = runner_mod.read_json(model_dir / "acceptance.json")
+        self.assertEqual(acceptance["status"], "failed")
+        self.assertAlmostEqual(
+            acceptance["shared_gpu"]["effective_capacity_gib"], retained_capacity
+        )
+        self.assertEqual(acceptance["shared_gpu"]["samples"][-1]["stage"], "acceptance")
+        self.assertAlmostEqual(acceptance["shared_gpu"]["samples"][-1]["free_mib"], 15830.0)
+        self.assertLess(acceptance["shared_gpu"]["effective_capacity_gib"], 14.0)
+
+    def test_resume_acceptance_probe_failure_fails_not_total_fallback(self):
+        run_dir = self.crash_before_acceptance(free_mib=13000.0)
+        model_dir = run_dir / "models" / self.qwen
+        with mock.patch.object(
+            runner_mod, "probe_gpu_free_mib",
+            side_effect=runner_mod.RunnerError("free probe down"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner(resume=run_dir, retry_failed=True).run()
+        self.assertIn("free probe down", str(ctx.exception))
+        self.assertFalse((model_dir / "acceptance.json").exists())
+        run_info = runner_mod.read_json(model_dir / "run_info.json")
+        self.assertEqual(run_info["failure"]["phase"], "acceptance")
+        # Retained observations survive context recreation; no bare-total fallback.
+        self.assertTrue(run_info["shared_gpu"]["samples"])
+
+    def test_failed_subprocess_keeps_pre_sample_for_diagnostics(self):
+        self.track.plan_error(self.qwen, "baseline", returns=1, log="connection reset")
+        with self.assertRaises(runner_mod.RunnerError):
+            self.track.runner().run()
+        run_dir = self.track.run_dir()
+        model_dir = run_dir / "models" / self.qwen
+        run_info = runner_mod.read_json(model_dir / "run_info.json")
+        attempt = run_info["phases"]["baseline"]["attempts"][0]
+        self.assertTrue(attempt["retryable"])  # retry classification unchanged
+        stages = [sample["stage"] for sample in run_info["shared_gpu"]["samples"]]
+        self.assertIn("baseline-pre", stages)
+        self.assertNotIn("baseline-post", stages)
+
+        self.assertEqual(self.track.runner(resume=run_dir, retry_failed=True).run(), 0)
+        run_info = runner_mod.read_json(model_dir / "run_info.json")
+        stages = [sample["stage"] for sample in run_info["shared_gpu"]["samples"]]
+        self.assertIn("baseline-post", stages)
+
+    def test_same_name_wrong_executable_refused(self):
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes",
+            return_value=["4242, rustdesk, 257 MiB"],
+        ), mock.patch.object(
+            runner_mod, "read_proc_exe", return_value="/tmp/impostor/rustdesk"
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner(dry_run=True).run()
+        self.assertIn("foreign GPU", str(ctx.exception))
+
+    def test_malformed_memory_and_over_allowance_refused(self):
+        allowed_exe = str(Path(runner_mod.RUSTDESK_EXECUTABLE).resolve())
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes",
+            return_value=["7, rustdesk, N/A"],
+        ), mock.patch.object(runner_mod, "read_proc_exe", return_value=allowed_exe):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner(dry_run=True).run()
+        self.assertIn("malformed", str(ctx.exception))
+        with mock.patch.object(
+            runner_mod, "probe_gpu_compute_processes",
+            return_value=["7, rustdesk, 300 MiB", "8, rustdesk, 300 MiB"],
+        ), mock.patch.object(runner_mod, "read_proc_exe", return_value=allowed_exe):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner(dry_run=True).run()
+        self.assertIn("allowance", str(ctx.exception))
 
 
 if __name__ == "__main__":
