@@ -1,0 +1,111 @@
+{
+  "phase": "baseline",
+  "checkpoint": "base",
+  "mode": "base",
+  "base_model": "Qwen/Qwen3-8B",
+  "adapter": null,
+  "model_kind": "language",
+  "requested_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "resolved_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "resolved_revision_source": "model_config",
+  "quantization": {
+    "requested_load_in_4bit": true,
+    "effective_load_in_4bit": true,
+    "quant_type": [
+      "nf4"
+    ],
+    "compute_dtype": [
+      "torch.bfloat16"
+    ],
+    "double_quant": true,
+    "quantized_module_count": 252,
+    "quantized_parameter_count": 252,
+    "packed_parameter_count": 252,
+    "unpacked_parameter_count": 0,
+    "non_params4_weight_count": 0,
+    "quantized_parameter_devices": [
+      "cuda:0"
+    ],
+    "all_parameter_devices": [
+      "cuda:0"
+    ],
+    "non_cuda_parameter_count": 0,
+    "non_cuda_parameter_devices": [],
+    "bitsandbytes_8bit_module_count": 0,
+    "bitsandbytes_available": true,
+    "bitsandbytes_version": "0.50.2",
+    "hf_device_map": null,
+    "offload": {
+      "cpu": [],
+      "disk": [],
+      "meta": []
+    }
+  },
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "bitsandbytes": "0.50.2",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T093135Z/models/01-qwen3-8b/workspace/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.87,
+  "semantic_accuracy": 0.87,
+  "valid_output_rate": 1.0,
+  "strict_correct": 174,
+  "semantic_correct": 174,
+  "valid_predictions": 200,
+  "per_class_recall": {
+    "bug": 0.91,
+    "feature-request": 0.83
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 91,
+      "feature-request": 9,
+      "INVALID": 0
+    },
+    "feature-request": {
+      "bug": 17,
+      "feature-request": 83,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 108,
+    "feature-request": 92,
+    "INVALID": 0
+  },
+  "mean_input_tokens": 375.41,
+  "median_input_tokens": 230.0,
+  "total_generated_tokens": 492,
+  "output_tokens_per_second": 9.89225158443136,
+  "mean_latency_ms": 248.6794820171781,
+  "median_latency_ms": 196.0451250197366,
+  "issues_per_second": 4.021240481476163,
+  "total_generation_time_s": 49.73589640343562,
+  "peak_allocated_gb": 6.172614574432373,
+  "peak_reserved_gb": 6.384765625,
+  "load_peak_allocated_gb": 5.748590469360352,
+  "load_peak_reserved_gb": 5.779296875
+}

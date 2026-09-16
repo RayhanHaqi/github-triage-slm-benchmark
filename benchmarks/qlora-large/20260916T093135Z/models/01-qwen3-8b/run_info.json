@@ -1,0 +1,124 @@
+{
+  "slug": "01-qwen3-8b",
+  "repo": "Qwen/Qwen3-8B",
+  "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "kind": "language",
+  "created_at": "2026-09-16T09:31:35.772734+00:00",
+  "status": "failed",
+  "config_sha256": "2c0056cc831db1e8780a43bcb29cf31a7ff14c6178893a577d18cf5fca32fe7c",
+  "data": {
+    "source": "/home/tilakoid/github-triage-data",
+    "splits": {
+      "train": {
+        "path": "/home/tilakoid/github-triage-data/train.jsonl",
+        "exists": true,
+        "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+        "rows": 1593
+      },
+      "val": {
+        "path": "/home/tilakoid/github-triage-data/val.jsonl",
+        "exists": true,
+        "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+        "rows": 200
+      },
+      "test": {
+        "path": "/home/tilakoid/github-triage-data/test.jsonl",
+        "exists": true,
+        "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+        "rows": 200
+      }
+    }
+  },
+  "phases": {
+    "preflight": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T09:31:35.854578+00:00",
+          "ended": "2026-09-16T09:36:27.870032+00:00",
+          "seconds": 292.015
+        }
+      ],
+      "finished_at": "2026-09-16T09:36:27.870047+00:00"
+    },
+    "baseline": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T09:36:27.870240+00:00",
+          "ended": "2026-09-16T09:37:32.913379+00:00",
+          "seconds": 65.043
+        }
+      ],
+      "finished_at": "2026-09-16T09:37:32.913418+00:00"
+    },
+    "train": {
+      "status": "failed",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "failed",
+          "started": "2026-09-16T09:37:32.913744+00:00",
+          "error": "interrupted (external)",
+          "retryable": true,
+          "ended": "2026-09-16T10:58:07.868399+00:00"
+        },
+        {
+          "attempt": 2,
+          "status": "failed",
+          "started": "2026-09-16T10:58:07.950221+00:00",
+          "retry": {
+            "mode": "fresh_restart",
+            "incomplete_checkpoints": [
+              "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T093135Z/models/01-qwen3-8b/workspace/trainer/checkpoint-400",
+              "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T093135Z/models/01-qwen3-8b/workspace/trainer/checkpoint-200"
+            ],
+            "deleted": {
+              "targets": [
+                {
+                  "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T093135Z/models/01-qwen3-8b/workspace/trainer",
+                  "bytes": 550759591
+                }
+              ],
+              "bytes_deleted": 550759591,
+              "deleted_at": "2026-09-16T10:58:08.227963+00:00"
+            }
+          },
+          "ended": "2026-09-16T11:53:46.523058+00:00",
+          "seconds": 3338.295,
+          "error": "train: invalid artifacts: checkpoint-400: rng_state.pth: unreadable torch state: UnpicklingError: Weights only load failed. This file can still be loaded, to do so you have two options, \u001b[1mdo those steps only if you trust the source of the checkpoint\u001b[0m. \n\t(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.\n\t(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.\n\tWeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray._reconstruct was not an allowed global by default. Please use `torch.serialization.add_safe_globals([numpy._core.multiarray._reconstruct])` or the `torch.serialization.safe_globals([numpy._core.multiarray._reconstruct])` context manager to allowlist this global if you trust this class/function.\n\nCheck the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.",
+          "retryable": false,
+          "log": null
+        }
+      ],
+      "failed_at": "2026-09-16T11:53:46.523089+00:00"
+    }
+  },
+  "cleanup": null,
+  "config_source": "/home/tilakoid/slm-specialist/configs/qlora-large/01-qwen3-8b.yaml",
+  "config_snapshot": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T093135Z/models/01-qwen3-8b/config.yaml",
+  "data_copies": {
+    "train": {
+      "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+      "rows": 1593
+    },
+    "val": {
+      "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+      "rows": 200
+    },
+    "test": {
+      "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+      "rows": 200
+    }
+  },
+  "failed_at": "2026-09-16T11:53:46.524441+00:00",
+  "failure": {
+    "phase": "train",
+    "error": "train: invalid artifacts: checkpoint-400: rng_state.pth: unreadable torch state: UnpicklingError: Weights only load failed. This file can still be loaded, to do so you have two options, \u001b[1mdo those steps only if you trust the source of the checkpoint\u001b[0m. \n\t(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.\n\t(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.\n\tWeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray._reconstruct was not an allowed global by default. Please use `torch.serialization.add_safe_globals([numpy._core.multiarray._reconstruct])` or the `torch.serialization.safe_globals([numpy._core.multiarray._reconstruct])` context manager to allowlist this global if you trust this class/function.\n\nCheck the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.",
+    "retryable": false
+  }
+}

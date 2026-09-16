@@ -1,0 +1,90 @@
+{
+  "model": "01-qwen3-8b",
+  "repo": "Qwen/Qwen3-8B",
+  "requested_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "resolved_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "kind": "language",
+  "threshold": 2048,
+  "needs": {
+    "train": 8,
+    "val": 2,
+    "test": 1
+  },
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "data_dir": "/home/tilakoid/github-triage-data",
+  "scanned": {
+    "train": 1593,
+    "val": 200,
+    "test": 200
+  },
+  "selected": {
+    "train": [
+      {
+        "index": 4,
+        "issue_number": 332706,
+        "length": 2682
+      },
+      {
+        "index": 58,
+        "issue_number": 328277,
+        "length": 3241
+      },
+      {
+        "index": 110,
+        "issue_number": 326913,
+        "length": 5117
+      },
+      {
+        "index": 115,
+        "issue_number": 327592,
+        "length": 3497
+      },
+      {
+        "index": 134,
+        "issue_number": 332254,
+        "length": 2370
+      },
+      {
+        "index": 142,
+        "issue_number": 326825,
+        "length": 3331
+      },
+      {
+        "index": 169,
+        "issue_number": 327798,
+        "length": 2463
+      },
+      {
+        "index": 194,
+        "issue_number": 318923,
+        "length": 5188
+      }
+    ],
+    "val": [
+      {
+        "index": 22,
+        "issue_number": 333547,
+        "length": 2339
+      },
+      {
+        "index": 50,
+        "issue_number": 333538,
+        "length": 3481
+      }
+    ],
+    "test": [
+      {
+        "index": 23,
+        "issue_number": 335649,
+        "length": 2461
+      }
+    ]
+  },
+  "tokenizer": {
+    "class": "Qwen2Tokenizer",
+    "name_or_path": "Qwen/Qwen3-8B"
+  },
+  "selected_at": "2026-09-16T09:31:42.801696+00:00"
+}

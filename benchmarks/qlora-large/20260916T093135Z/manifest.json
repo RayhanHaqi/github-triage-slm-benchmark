@@ -1,0 +1,113 @@
+{
+  "track": "qlora-large",
+  "run_id": "20260916T093135Z",
+  "status": "failed",
+  "created_at": "2026-09-16T09:31:35.770693+00:00",
+  "finished_at": "2026-09-16T11:53:46.525153+00:00",
+  "last_error": "RunnerError: model 01-qwen3-8b failed: train: invalid artifacts: checkpoint-400: rng_state.pth: unreadable torch state: UnpicklingError: Weights only load failed. This file can still be loaded, to do so you have two options, \u001b[1mdo those steps only if you trust the source of the checkpoint\u001b[0m. \n\t(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.\n\t(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.\n\tWeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray._reconstruct was not an allowed global by default. Please use `torch.serialization.add_safe_globals([numpy._core.multiarray._reconstruct])` or the `torch.serialization.safe_globals([numpy._core.multiarray._reconstruct])` context manager to allowlist this global if you trust this class/function.\n\nCheck the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.",
+  "git_commit": "c62a4d2155b612a278f4a5436f1a8d685314c45a",
+  "python": "/home/tilakoid/miniconda3/envs/github-triage/bin/python3.11",
+  "environment": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "accelerate": "1.15.0",
+    "bitsandbytes": "0.50.2",
+    "tqdm": "4.70.1"
+  },
+  "gpu": {
+    "device_index": 0,
+    "name": "NVIDIA GeForce RTX 5060 Ti",
+    "total_gib": 15.45635986328125,
+    "visible_devices": 1
+  },
+  "config_sha256": {
+    "01-qwen3-8b": "2c0056cc831db1e8780a43bcb29cf31a7ff14c6178893a577d18cf5fca32fe7c",
+    "02-ministral-3-8b-instruct": "8892b46d27dc74ed86af9a6f3b62bc033aef08f8a109ede9d7e736642c2a9bc6",
+    "03-qwen3.5-9b": "0446abb169485cdbf0991f0945b31cb58f9165d42b565dfa5d89817ef896990c",
+    "04-ministral-3-14b-instruct": "dbcc92d9a0feb59241552e226a2f7fef0e0062038d96d8ffea89b8a9979b9f2c"
+  },
+  "config_snapshot_sha256": {
+    "01-qwen3-8b": "9c3ff37711cc55976ec263a107320004cc6f8c279e42f1317c8c8e352f17a072"
+  },
+  "data": {
+    "source": "/home/tilakoid/github-triage-data",
+    "splits": {
+      "train": {
+        "path": "/home/tilakoid/github-triage-data/train.jsonl",
+        "exists": true,
+        "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+        "rows": 1593
+      },
+      "val": {
+        "path": "/home/tilakoid/github-triage-data/val.jsonl",
+        "exists": true,
+        "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+        "rows": 200
+      },
+      "test": {
+        "path": "/home/tilakoid/github-triage-data/test.jsonl",
+        "exists": true,
+        "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+        "rows": 200
+      }
+    }
+  },
+  "vram": {
+    "go_gib": 13.5,
+    "repeat_max_gib": 14.25,
+    "total_gib": 15.45635986328125
+  },
+  "models": [
+    {
+      "index": 1,
+      "slug": "01-qwen3-8b",
+      "repo": "Qwen/Qwen3-8B",
+      "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+      "kind": "language",
+      "status": "failed",
+      "failure": {
+        "phase": "train",
+        "error": "train: invalid artifacts: checkpoint-400: rng_state.pth: unreadable torch state: UnpicklingError: Weights only load failed. This file can still be loaded, to do so you have two options, \u001b[1mdo those steps only if you trust the source of the checkpoint\u001b[0m. \n\t(1) In PyTorch 2.6, we changed the default value of the `weights_only` argument in `torch.load` from `False` to `True`. Re-running `torch.load` with `weights_only` set to `False` will likely succeed, but it can result in arbitrary code execution. Do it only if you got the file from a trusted source.\n\t(2) Alternatively, to load with `weights_only=True` please check the recommended steps in the following error message.\n\tWeightsUnpickler error: Unsupported global: GLOBAL numpy._core.multiarray._reconstruct was not an allowed global by default. Please use `torch.serialization.add_safe_globals([numpy._core.multiarray._reconstruct])` or the `torch.serialization.safe_globals([numpy._core.multiarray._reconstruct])` context manager to allowlist this global if you trust this class/function.\n\nCheck the documentation of torch.load to learn more about types accepted by default with weights_only https://pytorch.org/docs/stable/generated/torch.load.html.",
+        "retryable": false
+      },
+      "run_info": "models/01-qwen3-8b/run_info.json"
+    },
+    {
+      "index": 2,
+      "slug": "02-ministral-3-8b-instruct",
+      "repo": "mistralai/Ministral-3-8B-Instruct-2512-BF16",
+      "revision": "f6fae9795746f63c9be8344932f01275f3c63734",
+      "kind": "vision",
+      "status": "pending",
+      "failure": null,
+      "run_info": "models/02-ministral-3-8b-instruct/run_info.json"
+    },
+    {
+      "index": 3,
+      "slug": "03-qwen3.5-9b",
+      "repo": "Qwen/Qwen3.5-9B",
+      "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+      "kind": "vision",
+      "status": "pending",
+      "failure": null,
+      "run_info": "models/03-qwen3.5-9b/run_info.json"
+    },
+    {
+      "index": 4,
+      "slug": "04-ministral-3-14b-instruct",
+      "repo": "mistralai/Ministral-3-14B-Instruct-2512-BF16",
+      "revision": "3cea74c1ebaf5ce5f5a2553de470e2ceab825142",
+      "kind": "vision",
+      "status": "pending",
+      "failure": null,
+      "run_info": "models/04-ministral-3-14b-instruct/run_info.json"
+    }
+  ],
+  "latest_written": false
+}

@@ -1232,6 +1232,70 @@ def torch_state_problems(path: Path, label: str) -> list[str]:
     return []
 
 
+def rng_state_problems(path: Path, label: str) -> list[str]:
+    """Validate a Trainer `rng_state.pth` including its NumPy RNG payload.
+
+    Trust boundary: this file is produced by Hugging Face Trainer inside the
+    invariant-checked active run (clean git, pinned environment, digest-verified
+    data), never from external input, so it is the one checkpoint file loaded
+    with `weights_only=False` — the NumPy state (`numpy.random.get_state()`)
+    cannot be represented under `weights_only=True`. Corruption is still
+    detected against the actual Trainer schema: `python` tuple, valid `numpy`
+    tuple, at least one non-empty tensor under `cpu` (or the legacy `torch`
+    key), and `cuda` as either one non-empty tensor (current Trainer) or a
+    non-empty sequence of non-empty tensors (legacy).
+    """
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - torch is part of the ML env
+        return [f"{label}: torch unavailable for validation: {exc}"]
+    try:
+        state = torch.load(path, map_location="cpu", weights_only=False)
+    except Exception as exc:
+        return [f"{label}: unreadable RNG state: {type(exc).__name__}: {exc}"]
+    if not isinstance(state, dict) or not state:
+        return [f"{label}: RNG state is not a non-empty dict"]
+
+    def nonempty_tensor(value) -> bool:
+        numel = getattr(value, "numel", None)
+        return numel is not None and int(numel()) > 0
+
+    problems: list[str] = []
+    python_state = state.get("python")
+    if not (isinstance(python_state, tuple) and len(python_state) >= 2):
+        problems.append(f"{label}: python RNG state is not a state tuple")
+    numpy_state = state.get("numpy")
+    if not (
+        isinstance(numpy_state, tuple)
+        and len(numpy_state) >= 2
+        and isinstance(numpy_state[0], str)
+        and hasattr(numpy_state[1], "shape")
+    ):
+        problems.append(f"{label}: numpy RNG state is not a numpy state tuple")
+    tensor_keys = [name for name in ("cpu", "torch") if name in state]
+    if not tensor_keys:
+        problems.append(f"{label}: RNG state has no cpu/torch tensor")
+    for name in tensor_keys:
+        if not nonempty_tensor(state[name]):
+            problems.append(f"{label}: {name} RNG state is not a non-empty tensor")
+    if "cuda" in state:
+        cuda_state = state["cuda"]
+        if nonempty_tensor(cuda_state):
+            pass
+        elif isinstance(cuda_state, (list, tuple)):
+            if not cuda_state:
+                problems.append(f"{label}: cuda RNG state is an empty sequence")
+            else:
+                for index, entry in enumerate(cuda_state):
+                    if not nonempty_tensor(entry):
+                        problems.append(
+                            f"{label}: cuda RNG state {index} is not a non-empty tensor"
+                        )
+        else:
+            problems.append(f"{label}: cuda RNG state is neither a tensor nor a sequence")
+    return problems
+
+
 def complete_checkpoint_problems(checkpoint: str | Path) -> list[str]:
     """Complete = named step == trainer_state.global_step, every file non-empty,
     JSON parseable, safetensors/torch states actually loadable."""
@@ -1282,12 +1346,17 @@ def complete_checkpoint_problems(checkpoint: str | Path) -> list[str]:
     else:
         problems += _file_problems(weight, f"{checkpoint.name}: {weight.name}")
 
-    for name in ("optimizer.pt", "scheduler.pt", "rng_state.pth"):
+    for name in ("optimizer.pt", "scheduler.pt"):
         path = checkpoint / name
         file_problems = _file_problems(path, f"{checkpoint.name}: {name}")
         problems += file_problems
         if not file_problems:
             problems += torch_state_problems(path, f"{checkpoint.name}: {name}")
+    rng_path = checkpoint / "rng_state.pth"
+    rng_file_problems = _file_problems(rng_path, f"{checkpoint.name}: rng_state.pth")
+    problems += rng_file_problems
+    if not rng_file_problems:
+        problems += rng_state_problems(rng_path, f"{checkpoint.name}: rng_state.pth")
     return problems
 
 

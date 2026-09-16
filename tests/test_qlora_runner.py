@@ -187,6 +187,8 @@ def write_safetensors(path: Path) -> None:
 
 
 def create_checkpoint(checkpoint: Path, step: int) -> None:
+    import numpy as np
+    import random
     import torch
 
     checkpoint.mkdir(parents=True, exist_ok=True)
@@ -195,7 +197,24 @@ def create_checkpoint(checkpoint: Path, step: int) -> None:
     write_safetensors(checkpoint / "adapter_model.safetensors")
     torch.save({"state": {}, "param_groups": []}, checkpoint / "optimizer.pt")
     torch.save({"lr": 1e-4}, checkpoint / "scheduler.pt")
-    torch.save(torch.get_rng_state(), checkpoint / "rng_state.pth")
+    # Realistic Trainer RNG state: NumPy state is not weights_only-loadable, the
+    # CPU state is a non-empty tensor and CUDA is a single non-empty tensor.
+    torch.save(
+        {
+            "python": random.getstate(),
+            "numpy": np.random.get_state(),
+            "cpu": torch.get_rng_state(),
+            "cuda": torch.zeros(16, dtype=torch.uint8),
+        },
+        checkpoint / "rng_state.pth",
+    )
+
+
+class PickledOnly:
+    """Not loadable under torch.load(weights_only=True)."""
+
+    def __init__(self, value: int = 1):
+        self.value = value
 
 
 def create_adapter(adapter_dir: Path) -> None:
@@ -2168,6 +2187,101 @@ class CheckpointIntegrityTest(PatchedTrackTest):
         problems = runner_mod.complete_checkpoint_problems(checkpoint)
         self.assertTrue(any("trainer_state.json" in problem for problem in problems), problems)
         self.assertTrue(any("scheduler.pt" in problem for problem in problems), problems)
+
+    def test_realistic_trainer_rng_state_including_numpy_passes(self):
+        checkpoint = self.checkpoint()
+        # fixture already uses the real schema: python/numpy/cpu/cuda(+single tensor)
+        self.assertEqual(runner_mod.complete_checkpoint_problems(checkpoint), [])
+        # legacy sequence-form CUDA and legacy `torch` key remain accepted
+        import random
+
+        import numpy as np
+        import torch
+
+        torch.save(
+            {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "torch": torch.get_rng_state(),
+                "cuda": [torch.zeros(16, dtype=torch.uint8)],
+            },
+            checkpoint / "rng_state.pth",
+        )
+        self.assertEqual(runner_mod.complete_checkpoint_problems(checkpoint), [])
+
+    def test_rng_state_corruption_refused(self):
+        import random
+
+        import numpy as np
+        import torch
+
+        checkpoint = self.checkpoint()
+        torch.save({}, checkpoint / "rng_state.pth")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("RNG state is not a non-empty dict" in p for p in problems), problems)
+        # missing python/numpy and no cpu/torch tensor
+        torch.save({"unexpected": 1}, checkpoint / "rng_state.pth")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("python RNG state" in p for p in problems), problems)
+        self.assertTrue(any("numpy RNG state" in p for p in problems), problems)
+        self.assertTrue(any("no cpu/torch tensor" in p for p in problems), problems)
+        # malformed python tuple and malformed numpy payload
+        torch.save(
+            {"python": "nope", "numpy": "nope", "cpu": torch.get_rng_state()},
+            checkpoint / "rng_state.pth",
+        )
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("python RNG state" in p for p in problems), problems)
+        self.assertTrue(any("numpy RNG state" in p for p in problems), problems)
+        # empty cpu tensor
+        torch.save(
+            {
+                "python": random.getstate(),
+                "numpy": np.random.get_state(),
+                "cpu": torch.zeros(0, dtype=torch.uint8),
+            },
+            checkpoint / "rng_state.pth",
+        )
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("cpu RNG state" in p for p in problems), problems)
+        # malformed cuda forms
+        base = {
+            "python": random.getstate(),
+            "numpy": np.random.get_state(),
+            "cpu": torch.get_rng_state(),
+        }
+        torch.save({**base, "cuda": "nope"}, checkpoint / "rng_state.pth")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("neither a tensor nor a sequence" in p for p in problems), problems)
+        torch.save({**base, "cuda": []}, checkpoint / "rng_state.pth")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("empty sequence" in p for p in problems), problems)
+        torch.save({**base, "cuda": [torch.zeros(0, dtype=torch.uint8)]},
+                   checkpoint / "rng_state.pth")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("cuda RNG state 0" in p for p in problems), problems)
+        # truncated file
+        (checkpoint / "rng_state.pth").write_bytes(b"\x00\x01\x02")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("rng_state.pth" in p for p in problems), problems)
+        # zero-byte file
+        (checkpoint / "rng_state.pth").write_bytes(b"")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("rng_state.pth: zero-byte" in p for p in problems), problems)
+
+    def test_optimizer_and_scheduler_still_weights_only(self):
+        import torch
+
+        checkpoint = self.checkpoint()
+        torch.save({"obj": PickledOnly(1)}, checkpoint / "optimizer.pt")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("optimizer.pt" in p for p in problems), problems)
+        # a numpy-bearing scheduler is likewise refused (weights_only stays strict)
+        import numpy as np
+
+        torch.save({"numpy": np.random.get_state()}, checkpoint / "scheduler.pt")
+        problems = runner_mod.complete_checkpoint_problems(checkpoint)
+        self.assertTrue(any("scheduler.pt" in p for p in problems), problems)
 
 
 class CompletedModelEvidenceTest(PatchedTrackTest):

@@ -1,0 +1,129 @@
+# Snapshot of /home/tilakoid/slm-specialist/configs/qlora-large/01-qwen3-8b.yaml taken 2026-09-16T09:31:35.838973+00:00
+name: 01-qwen3-8b
+description: 'Frozen VS Code issue benchmark: Qwen3-8B (QLoRA NF4).'
+paths:
+  data_dir: /home/tilakoid/slm-specialist/data
+  runs_dir: /home/tilakoid/slm-specialist/runs
+sources:
+  bug:
+    github_label: bug
+    repo: microsoft/vscode
+    file: /home/tilakoid/github-triage-data/bugs.json
+  feature-request:
+    github_label: feature-request
+    repo: microsoft/vscode
+    file: /home/tilakoid/github-triage-data/features.json
+cleaning:
+  max_examples_per_class: 1000
+  min_visible_chars: 5
+  title_patterns:
+  - pattern: ^\s*\[\s*bug\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*bug\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*\[\s*feature(?:\s+request)?\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*feature\s+request\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*\[\s*needs?\s+more\s+info(?:rmation)?\s*\]\s*[:\-]?\s*
+    flags: i
+    replacement: ''
+  - pattern: ^\s*needs?\s+more\s+info(?:rmation)?\s*[:\-]\s*
+    flags: i
+    replacement: ''
+  body_patterns:
+  - pattern: <!--.*?-->
+    flags: s
+    replacement: ''
+  - pattern: (?im)^#{1,6}\s*(?:issue\s+)?type\s*$\n+\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$
+    flags: ''
+    replacement: ''
+  - pattern: (?im)^\s*(?:\*\*)?(?:issue\s+)?type(?:\*\*)?\s*:\s*(?:bug|feature(?:\s+request)?|needs?\s+more\s+info(?:rmation)?)\s*$
+    flags: ''
+    replacement: ''
+  - pattern: \n{4,}
+    flags: ''
+    replacement: '
+
+
+
+      '
+  whitespace_pattern: \s+
+  duplicate_key_lowercase: true
+split:
+  train_ratio: 0.8
+  val_ratio: 0.9
+  temporal_key: created_at
+  seed: 42
+model:
+  base_model: Qwen/Qwen3-8B
+  system_prompt: 'Classify the GitHub issue into exactly one category: bug or feature-request.
+    Return only the category name.'
+  max_seq_length: 2048
+  load_in_4bit: true
+  revision: b968826d9c46dd6066d109eabc6255188de91218
+  kind: language
+  trust_remote_code: false
+  use_exact_model_name: true
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+  bias: none
+  gradient_checkpointing: unsloth
+  random_state: 42
+training:
+  output_subdir: trainer
+  adapter_subdir: adapter
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 4
+  num_train_epochs: 3
+  learning_rate: 0.0002
+  warmup_ratio: 0.05
+  logging_steps: 10
+  eval_strategy: epoch
+  save_strategy: epoch
+  save_total_limit: 2
+  load_best_model_at_end: true
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  bf16: true
+  fp16: false
+  optim: adamw_8bit
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  seed: 42
+  report_to: none
+  vision_collator: false
+evaluation:
+  split: test
+  max_user_tokens: 1800
+  max_new_tokens: 12
+  do_sample: false
+  pad_eos: true
+  chat_template_kwargs:
+    enable_thinking: false
+benchmark:
+  display_name: Qwen3-8B
+  checkpoint: Qwen/Qwen3-8B
+  revision: b968826d9c46dd6066d109eabc6255188de91218
+  official_checkpoint: Qwen/Qwen3-8B
+  pinned_revision: b968826d9c46dd6066d109eabc6255188de91218
+  method: QLoRA NF4
+  compatibility_notes: 'Official Qwen repo forced with use_exact_model_name (no pre-quantized
+    remap); NF4 double-quantized 4-bit base with BF16 compute; language seven-target
+    LoRA; thinking disabled; adapter saved from the best eval_loss checkpoint. QLoRA
+    track only: never rank against the BF16 reference track.'
