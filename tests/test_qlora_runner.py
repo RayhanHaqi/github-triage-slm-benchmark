@@ -25,6 +25,14 @@ sys.path.insert(0, str(ROOT / "src"))
 import run_qlora_large as runner_mod  # noqa: E402
 from specialist.cli import load_config  # noqa: E402
 
+try:  # cache-provenance tests need the pinned ML stack
+    import huggingface_hub  # noqa: F401
+    from transformers.utils.hub import extract_commit_hash  # noqa: F401
+
+    HAVE_CACHE_PROVENANCE_LIBS = True
+except Exception:  # pragma: no cover - default env without transformers
+    HAVE_CACHE_PROVENANCE_LIBS = False
+
 GOOD_LOSSES = (0.51, 0.42, 0.33)
 
 
@@ -429,6 +437,7 @@ class FakeTrack:
                 "repo": spec.repo,
                 "requested_revision": spec.revision,
                 "resolved_revision": spec.revision,
+                "resolved_revision_source": "object_metadata",
                 "kind": spec.kind,
                 "threshold": runner_mod.MIN_SUPERVISED_TOKENS,
                 "needs": runner_mod.PREFLIGHT_NEEDS,
@@ -1045,6 +1054,39 @@ class PreflightSelectionTest(unittest.TestCase):
             runner_mod.rendered_supervised_length(ListSource(), row, "s", {}), 9
         )
 
+    def test_rendered_length_falls_back_to_typed_text_and_handles_tensors(self):
+        class MultimodalProcessor:
+            def __init__(self):
+                self.calls = []
+
+            def apply_chat_template(self, messages, **kwargs):
+                self.calls.append(messages)
+                if isinstance(messages[0]["content"], str):
+                    raise TypeError("string indices must be integers")
+                return {"input_ids": [1] * 2050, "attention_mask": [1] * 2050}
+
+        class TensorEncoding:
+            class TensorLike:
+                def __init__(self, shape):
+                    self.shape = shape
+
+            class Encoding:
+                def __init__(self):
+                    self.input_ids = TensorEncoding.TensorLike((1, 1234))
+
+            def apply_chat_template(self, messages, **kwargs):
+                return TensorEncoding.Encoding()
+
+        row = {"input": "x", "label": "bug"}
+        processor = MultimodalProcessor()
+        self.assertEqual(runner_mod.rendered_supervised_length(processor, row, "s", {}), 2050)
+        self.assertEqual(len(processor.calls), 2)
+        self.assertEqual(processor.calls[0][0]["content"], "s")
+        self.assertEqual(
+            processor.calls[1][0]["content"], [{"type": "text", "text": "s"}]
+        )
+        self.assertEqual(runner_mod.rendered_supervised_length(TensorEncoding(), row, "s", {}), 1234)
+
     def test_first_rows_meeting_threshold_are_selected(self):
         rows = [{"issue_number": i, "input": f"i{i}", "label": "bug"} for i in range(20)]
         lengths = {0: 100, 1: 2050, 2: 3000, 3: 2047, 4: 4000, 5: 2100, 6: 2200}
@@ -1085,16 +1127,7 @@ class PreflightSelectionTest(unittest.TestCase):
         self.assertTrue(any("val" in problem for problem in problems))
         self.assertTrue(any("below" in problem for problem in problems))
 
-    def test_revision_from_object_uses_snapshot_paths_and_rejects_unresolved(self):
-        sha = "b968826d9c46dd6066d109eabc6255188de91218"
-
-        class SnapshotSource:
-            def __init__(self):
-                self.init_kwargs = {
-                    "vocab_file": f"/cache/models--Qwen--Qwen3-8B/snapshots/{sha}/vocab.json",
-                    "name_or_path": "Qwen/Qwen3-8B",
-                }
-
+    def test_revision_from_object_uses_object_metadata_only(self):
         class CommitHashSource:
             class Config:
                 _commit_hash = "a" * 40
@@ -1102,15 +1135,35 @@ class PreflightSelectionTest(unittest.TestCase):
             def __init__(self):
                 self.config = self.Config()
 
+        class NestedTokenizerSource:
+            class Tokenizer:
+                class Config:
+                    _commit_hash = "b" * 40
+
+                def __init__(self):
+                    self.config = self.Config()
+
+            def __init__(self):
+                self.tokenizer = self.Tokenizer()
+
+        class SnapshotPathSource:
+            """A cached snapshot path alone is NOT object metadata (cache API is the fallback)."""
+
+            def __init__(self):
+                self.init_kwargs = {
+                    "vocab_file": f"/cache/models--Qwen--Qwen3-8B/snapshots/{'c' * 40}/vocab.json"
+                }
+
         class UnresolvedSource:
             def __init__(self):
                 self.init_kwargs = {"name_or_path": "Qwen/Qwen3-8B"}
 
-        self.assertEqual(runner_mod.revision_from_object(SnapshotSource()), sha)
         self.assertEqual(runner_mod.revision_from_object(CommitHashSource()), "a" * 40)
+        self.assertEqual(runner_mod.revision_from_object(NestedTokenizerSource()), "b" * 40)
+        self.assertIsNone(runner_mod.revision_from_object(SnapshotPathSource()))
         self.assertIsNone(runner_mod.revision_from_object(UnresolvedSource()))
 
-    def test_selection_resolved_revision_must_match(self):
+    def test_selection_resolved_revision_and_source_must_be_exact(self):
         runner = runner_mod.Runner()
         spec = runner_mod.EXPECTED_MODELS[0]
         selection = {
@@ -1118,6 +1171,7 @@ class PreflightSelectionTest(unittest.TestCase):
             "repo": spec.repo,
             "requested_revision": spec.revision,
             "resolved_revision": "0" * 40,
+            "resolved_revision_source": "object_metadata",
             "threshold": 2048,
             "selected": {
                 "train": [{"length": 2048}] * 8,
@@ -1131,6 +1185,126 @@ class PreflightSelectionTest(unittest.TestCase):
         del selection["resolved_revision"]
         problems = runner._selection_problems(selection, spec)
         self.assertTrue(any("resolved revision" in problem for problem in problems))
+
+        selection["resolved_revision"] = spec.revision
+        for bad_source in (None, "requested", "snapshot_scan"):
+            selection["resolved_revision_source"] = bad_source
+            problems = runner._selection_problems(selection, spec)
+            self.assertTrue(
+                any("revision source" in problem for problem in problems), bad_source
+            )
+        for good_source in ("object_metadata", "hf_cache_snapshot"):
+            selection["resolved_revision_source"] = good_source
+            self.assertEqual(runner._selection_problems(selection, spec), [])
+
+
+@unittest.skipUnless(
+    HAVE_CACHE_PROVENANCE_LIBS, "huggingface_hub/transformers required for cache provenance"
+)
+class CacheProvenanceTest(unittest.TestCase):
+    """Unit tests for the official cache-provenance fallback (cache API mocked)."""
+
+    sha = "f6fae9795746f63c9be8344932f01275f3c63734"
+    repo = "mistralai/Ministral-3-8B-Instruct-2512-BF16"
+
+    def snapshot_path(self, filename: str, sha: str | None = None) -> str:
+        sha = sha or self.sha
+        return f"/cache/hub/models--mistralai--Ministral-3-8B-Instruct-2512-BF16/snapshots/{sha}/{filename}"
+
+    def test_exact_snapshot_hit_passes(self):
+        with mock.patch(
+            "huggingface_hub.try_to_load_from_cache",
+            side_effect=lambda repo_id, filename, revision: self.snapshot_path(filename),
+        ):
+            self.assertEqual(runner_mod.revision_from_cache(self.repo, self.sha), self.sha)
+
+    def test_first_probes_miss_then_later_hit(self):
+        calls: list[str] = []
+        cached_no_exist = object()
+
+        def fake(repo_id, filename, revision):
+            calls.append(filename)
+            if filename in ("processor_config.json", "tokenizer_config.json"):
+                return cached_no_exist
+            if filename == "tokenizer.json":
+                return None
+            return self.snapshot_path(filename)
+
+        with mock.patch("huggingface_hub.try_to_load_from_cache", side_effect=fake):
+            self.assertEqual(runner_mod.revision_from_cache(self.repo, self.sha), self.sha)
+        self.assertEqual(
+            calls,
+            ["processor_config.json", "tokenizer_config.json", "tokenizer.json", "tekken.json"],
+        )
+
+    def test_wrong_snapshot_sha_continues_and_all_miss_fails(self):
+        wrong = "0" * 40
+        with mock.patch(
+            "huggingface_hub.try_to_load_from_cache",
+            side_effect=lambda repo_id, filename, revision: self.snapshot_path(filename, wrong),
+        ):
+            self.assertIsNone(runner_mod.revision_from_cache(self.repo, self.sha))
+
+        with mock.patch("huggingface_hub.try_to_load_from_cache", return_value=None):
+            self.assertIsNone(runner_mod.revision_from_cache(self.repo, self.sha))
+
+    def test_cached_no_exist_fails_closed(self):
+        from huggingface_hub import _CACHED_NO_EXIST
+
+        with mock.patch(
+            "huggingface_hub.try_to_load_from_cache", return_value=_CACHED_NO_EXIST
+        ):
+            self.assertIsNone(runner_mod.revision_from_cache(self.repo, self.sha))
+
+    def test_non_sha_revision_never_calls_cache_api(self):
+        for revision in ("main", self.sha.upper(), self.sha[:39], self.sha + "0", None):
+            with mock.patch(
+                "huggingface_hub.try_to_load_from_cache",
+                side_effect=AssertionError("cache API must not be called"),
+            ):
+                self.assertIsNone(runner_mod.revision_from_cache(self.repo, revision))
+
+    def test_object_metadata_is_preferred_over_cache(self):
+        class CommitHashSource:
+            class Config:
+                _commit_hash = "a" * 40
+
+            def __init__(self):
+                self.config = self.Config()
+
+        with mock.patch(
+            "huggingface_hub.try_to_load_from_cache",
+            side_effect=AssertionError("cache API must not be called"),
+        ):
+            resolved, source = runner_mod.selection_revision(
+                CommitHashSource(), self.repo, self.sha
+            )
+        self.assertEqual((resolved, source), ("a" * 40, "object_metadata"))
+
+    def test_cache_hit_records_hf_cache_snapshot_source(self):
+        class UnresolvedSource:
+            def __init__(self):
+                self.init_kwargs = {"name_or_path": "repo"}
+
+        with mock.patch(
+            "huggingface_hub.try_to_load_from_cache",
+            side_effect=lambda repo_id, filename, revision: self.snapshot_path(filename),
+        ):
+            resolved, source = runner_mod.selection_revision(
+                UnresolvedSource(), self.repo, self.sha
+            )
+        self.assertEqual((resolved, source), (self.sha, "hf_cache_snapshot"))
+
+    def test_both_miss_returns_nothing(self):
+        class UnresolvedSource:
+            def __init__(self):
+                self.init_kwargs = {"name_or_path": "repo"}
+
+        with mock.patch("huggingface_hub.try_to_load_from_cache", return_value=None):
+            self.assertEqual(
+                runner_mod.selection_revision(UnresolvedSource(), self.repo, self.sha),
+                (None, None),
+            )
 
 
 class PreflightProofTest(unittest.TestCase):
@@ -1454,6 +1628,7 @@ class ArtifactValidatorTest(PatchedTrackTest):
                 "repo": context["spec"].repo,
                 "requested_revision": context["spec"].revision,
                 "resolved_revision": context["spec"].revision,
+                "resolved_revision_source": "hf_cache_snapshot",
                 "threshold": runner_mod.MIN_SUPERVISED_TOKENS,
                 "selected": {
                     split: [{"length": 2048}] * need

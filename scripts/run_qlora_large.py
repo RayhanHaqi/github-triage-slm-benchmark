@@ -940,6 +940,11 @@ def selection_problems(selection: dict, spec: ModelSpec) -> list[str]:
             f"selection resolved revision {selection.get('resolved_revision')!r} != "
             f"pinned {spec.revision!r}"
         )
+    revision_source = selection.get("resolved_revision_source")
+    if revision_source not in REVISION_SOURCES:
+        problems.append(
+            f"selection resolved revision source {revision_source!r} not in {REVISION_SOURCES}"
+        )
     threshold = selection.get("threshold", MIN_SUPERVISED_TOKENS)
     selected = selection.get("selected") or {}
     for split, need in PREFLIGHT_NEEDS.items():
@@ -1093,15 +1098,35 @@ def select_preflight_rows(
     return {"selected": selected, "missing": missing, "scanned": scanned}
 
 
+def _typed_text_messages(messages: list[dict]) -> list[dict]:
+    """Typed text parts; some multimodal processors reject plain-string content."""
+    return [
+        {
+            "role": message["role"],
+            "content": [{"type": "text", "text": str(message["content"])}],
+        }
+        for message in messages
+    ]
+
+
 def rendered_supervised_length(source, row: dict, system_prompt: str, chat_kwargs: dict) -> int:
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": row["input"]},
         {"role": "assistant", "content": row["label"]},
     ]
-    rendered = source.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=False, **chat_kwargs
-    )
+    try:
+        rendered = source.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=False, **chat_kwargs
+        )
+    except (TypeError, ValueError, KeyError):
+        # Multimodal processors (Transformers 5.5) require typed content parts.
+        rendered = source.apply_chat_template(
+            _typed_text_messages(messages),
+            tokenize=True,
+            add_generation_prompt=False,
+            **chat_kwargs,
+        )
     # transformers returns a BatchEncoding (a Mapping, not a dict subclass).
     if hasattr(rendered, "input_ids"):
         ids = rendered.input_ids
@@ -1109,45 +1134,87 @@ def rendered_supervised_length(source, row: dict, system_prompt: str, chat_kwarg
         ids = rendered.get("input_ids", rendered)
     else:
         ids = rendered
+    if hasattr(ids, "shape"):  # torch/numpy tensor, possibly batched (1, N)
+        return int(ids.shape[-1])
     if ids and isinstance(ids[0], (list, tuple)):  # single unbatched row
         ids = ids[0]
     return len(ids)
 
 
-SNAPSHOT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
+
+# Official cache-provenance probe order (Transformers 5.5 / huggingface_hub).
+CACHE_PROVENANCE_FILES = (
+    "processor_config.json",
+    "tokenizer_config.json",
+    "tokenizer.json",
+    "tekken.json",
+    "special_tokens_map.json",
+    "chat_template.jinja",
+    "config.json",
+)
+REVISION_SOURCES = ("object_metadata", "hf_cache_snapshot")
 
 
 def revision_from_object(source) -> str | None:
-    """Exact resolved revision from tokenizer/processor metadata.
+    """Resolved revision from tokenizer/processor object metadata only.
 
-    Uses the shared `resolved_commit_hash` helper first, then the hub snapshot
-    path embedded in tokenizer/processor init kwargs (transformers 5.5 does not
-    expose `_commit_hash` on slow tokenizers). Returns None when unresolved.
+    The shared `resolved_commit_hash` helper (`_commit_hash` on the object, its
+    config or nested tokenizer/processor); no filesystem scanning.
     """
     from specialist.model import resolved_commit_hash
 
     holders = [source, getattr(source, "tokenizer", None), getattr(source, "image_processor", None)]
-    resolved = resolved_commit_hash(*holders)
-    if resolved:
-        return resolved
-    for holder in holders:
-        if holder is None:
+    return resolved_commit_hash(*holders) or None
+
+
+def revision_from_cache(repo: str, requested_revision: str) -> str | None:
+    """Official cache provenance for a requested full commit SHA.
+
+    Only exact 40-lowercase-hex revisions are considered. Each candidate file
+    is resolved with `huggingface_hub.try_to_load_from_cache` against the
+    process's default cache (the runner's isolated `HF_HUB_CACHE`), and a hit
+    must extract to a commit hash exactly equal to the requested SHA. Any miss
+    (`None`, `_CACHED_NO_EXIST`, non-string, wrong SHA) continues; all misses
+    return None so the caller stays fail-closed. No network, no HfApi and no
+    snapshot-directory scanning.
+    """
+    if not isinstance(requested_revision, str) or not SHA40_RE.fullmatch(requested_revision):
+        return None
+    try:
+        from huggingface_hub import try_to_load_from_cache
+        from transformers.utils.hub import extract_commit_hash
+    except ImportError:
+        return None
+    for filename in CACHE_PROVENANCE_FILES:
+        try:
+            hit = try_to_load_from_cache(
+                repo_id=repo, filename=filename, revision=requested_revision
+            )
+        except Exception:
             continue
-        values: list[str] = []
-        kwargs = getattr(holder, "init_kwargs", None)
-        if hasattr(kwargs, "values"):
-            values += [value for value in kwargs.values() if isinstance(value, str)]
-        for attribute in ("vocab_file", "merges_file", "tokenizer_file", "name_or_path"):
-            value = getattr(holder, attribute, None)
-            if isinstance(value, str):
-                values.append(value)
-        for value in values:
-            parts = Path(value).parts
-            if "snapshots" in parts:
-                index = parts.index("snapshots")
-                if index + 1 < len(parts) and SNAPSHOT_SHA_RE.fullmatch(parts[index + 1]):
-                    return parts[index + 1]
+        if not isinstance(hit, str):
+            continue  # None, _CACHED_NO_EXIST or an unexpected value
+        try:
+            commit = extract_commit_hash(hit, None)
+        except Exception:
+            commit = None
+        if commit == requested_revision:
+            return commit
     return None
+
+
+def selection_revision(
+    source, repo: str, requested_revision: str
+) -> tuple[str | None, str | None]:
+    """(resolved SHA, provenance) preferring object metadata over cache hits."""
+    resolved = revision_from_object(source)
+    if resolved:
+        return resolved, "object_metadata"
+    resolved = revision_from_cache(repo, requested_revision)
+    if resolved:
+        return resolved, "hf_cache_snapshot"
+    return None, None
 
 
 # --------------------------------------------------------------------------- #
@@ -1926,11 +1993,12 @@ def cmd_select_rows(args) -> int:
 
     from specialist.model import configured_chat_template_kwargs
 
-    resolved = revision_from_object(source)
+    resolved, revision_source = selection_revision(source, spec.repo, spec.revision)
     if not resolved:
         raise RunnerError(
-            f"tokenizer/processor for {spec.repo} exposed no resolved commit hash or "
-            "snapshot path; refusing a selection that cannot prove the exact revision"
+            f"tokenizer/processor for {spec.repo} exposed no object revision metadata and "
+            f"the cache holds no provenance for {spec.revision}; refusing a selection that "
+            "cannot prove the exact revision"
         )
     if resolved != spec.revision:
         raise RunnerError(
@@ -1966,6 +2034,7 @@ def cmd_select_rows(args) -> int:
         "repo": spec.repo,
         "requested_revision": spec.revision,
         "resolved_revision": resolved,
+        "resolved_revision_source": revision_source,
         "kind": spec.kind,
         "threshold": MIN_SUPERVISED_TOKENS,
         "needs": PREFLIGHT_NEEDS,

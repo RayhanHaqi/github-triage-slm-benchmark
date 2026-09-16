@@ -1,0 +1,73 @@
+{
+  "slug": "02-ministral-3-8b-instruct",
+  "repo": "mistralai/Ministral-3-8B-Instruct-2512-BF16",
+  "revision": "f6fae9795746f63c9be8344932f01275f3c63734",
+  "kind": "vision",
+  "created_at": "2026-09-16T13:01:22.897592+00:00",
+  "status": "failed",
+  "config_sha256": "8892b46d27dc74ed86af9a6f3b62bc033aef08f8a109ede9d7e736642c2a9bc6",
+  "data": {
+    "source": "/home/tilakoid/github-triage-data",
+    "splits": {
+      "train": {
+        "path": "/home/tilakoid/github-triage-data/train.jsonl",
+        "exists": true,
+        "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+        "rows": 1593
+      },
+      "val": {
+        "path": "/home/tilakoid/github-triage-data/val.jsonl",
+        "exists": true,
+        "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+        "rows": 200
+      },
+      "test": {
+        "path": "/home/tilakoid/github-triage-data/test.jsonl",
+        "exists": true,
+        "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+        "rows": 200
+      }
+    }
+  },
+  "phases": {
+    "preflight": {
+      "status": "failed",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "failed",
+          "started": "2026-09-16T13:01:22.978083+00:00",
+          "ended": "2026-09-16T13:01:34.153371+00:00",
+          "seconds": 11.175,
+          "error": "preflight: selection exit code 1 (not in the transient allowlist)",
+          "retryable": false,
+          "log": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/02-ministral-3-8b-instruct/logs/selection-a1.log"
+        }
+      ],
+      "failed_at": "2026-09-16T13:01:34.153396+00:00"
+    }
+  },
+  "cleanup": null,
+  "config_source": "/home/tilakoid/slm-specialist/configs/qlora-large/02-ministral-3-8b-instruct.yaml",
+  "config_snapshot": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/02-ministral-3-8b-instruct/config.yaml",
+  "data_copies": {
+    "train": {
+      "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+      "rows": 1593
+    },
+    "val": {
+      "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+      "rows": 200
+    },
+    "test": {
+      "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+      "rows": 200
+    }
+  },
+  "failed_at": "2026-09-16T13:01:34.153734+00:00",
+  "failure": {
+    "phase": "preflight",
+    "error": "preflight: selection exit code 1 (not in the transient allowlist)",
+    "retryable": false
+  }
+}
