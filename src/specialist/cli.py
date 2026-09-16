@@ -110,6 +110,40 @@ def run_phase(
     subprocess.run(cmd, check=True, cwd=str(run_dir), env=_phase_env())
 
 
+def _require_base_field_match(baseline: dict, finetuned: dict, field: str, label: str) -> None:
+    """Fail when baseline/fine-tuned runs disagree on the base model identity."""
+    left, right = baseline.get(field), finetuned.get(field)
+    if left != right:
+        raise RuntimeError(
+            f"baseline and fine-tuned runs disagree on {label}: {left!r} != {right!r}"
+        )
+
+
+def _quantization_view(metrics: dict) -> dict:
+    """Quantization signature for cross-run matching; absent key = legacy BF16.
+
+    Offload is compared as counts, not module names: adapter wrapping changes
+    module-key prefixes, so an exact `hf_device_map` comparison would reject
+    identical placements.
+    """
+    quant = metrics.get("quantization") or {}
+    offload = quant.get("offload") or {}
+    return {
+        "requested_load_in_4bit": bool(quant.get("requested_load_in_4bit", False)),
+        "effective_load_in_4bit": bool(quant.get("effective_load_in_4bit", False)),
+        "quant_type": quant.get("quant_type"),
+        "compute_dtype": quant.get("compute_dtype"),
+        "double_quant": quant.get("double_quant"),
+        # Absent (legacy) and empty (new BF16) compare equal.
+        "quantized_parameter_devices": quant.get("quantized_parameter_devices") or [],
+        "offload_counts": {
+            "cpu": len(offload.get("cpu") or []),
+            "disk": len(offload.get("disk") or []),
+            "meta": len(offload.get("meta") or []),
+        },
+    }
+
+
 def build_comparison(run_dir: str | Path, config: dict) -> dict:
     run_dir = Path(run_dir)
     baseline = json.loads((run_dir / "baseline_metrics.json").read_text(encoding="utf-8"))
@@ -126,11 +160,31 @@ def build_comparison(run_dir: str | Path, config: dict) -> dict:
             f"{baseline['split_path']} != {finetuned['split_path']}"
         )
 
+    # Base identity/revision and effective quantization must match; `.get`
+    # keeps artifacts from before these fields existed (legacy BF16 runs) valid.
+    for field, label in (
+        ("base_model", "base model"),
+        ("model_kind", "model kind"),
+        ("requested_revision", "requested base revision"),
+        ("resolved_revision", "resolved base revision"),
+        ("resolved_revision_source", "resolved revision source"),
+    ):
+        _require_base_field_match(baseline, finetuned, field, label)
+
+    baseline_quant = _quantization_view(baseline)
+    finetuned_quant = _quantization_view(finetuned)
+    if baseline_quant != finetuned_quant:
+        raise RuntimeError(
+            "baseline and fine-tuned runs used different quantization settings: "
+            f"{baseline_quant} != {finetuned_quant}"
+        )
+
     def summarize(m: dict) -> dict:
         return {
             "checkpoint": m["checkpoint"],
             "mode": m["mode"],
             "adapter": m["adapter"],
+            "quantization": _quantization_view(m),
             "strict_accuracy": m["strict_accuracy"],
             "semantic_accuracy": m["semantic_accuracy"],
             "valid_output_rate": m["valid_output_rate"],
@@ -156,6 +210,15 @@ def build_comparison(run_dir: str | Path, config: dict) -> dict:
     return {
         "run_dir": str(run_dir),
         "config": config.get("name"),
+        "base_identity": {
+            "base_model": baseline.get("base_model"),
+            "model_kind": baseline.get("model_kind"),
+            "requested_revision": baseline.get("requested_revision"),
+            "resolved_revision": baseline.get("resolved_revision"),
+            "resolved_revision_source": baseline.get("resolved_revision_source"),
+            "quantization": baseline_quant,
+            "match": True,
+        },
         "split": baseline["split"],
         "split_path": baseline["split_path"],
         "test_sha256": {

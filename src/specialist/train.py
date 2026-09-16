@@ -21,7 +21,9 @@ so eval uses the fused loss path instead of materialising full logits.
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import time
 from pathlib import Path
 
@@ -156,6 +158,85 @@ def _sha256(path: Path) -> str | None:
     return model_mod.sha256_file(path) if path.is_file() else None
 
 
+def _reset_cuda_peak() -> None:
+    """Zero CUDA peak counters so training peaks cover training only."""
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+    except Exception:  # pragma: no cover - driver/CUDA probing can fail
+        pass
+
+
+def _cuda_peak_gib() -> tuple[float, float]:
+    """(peak allocated GiB, peak reserved GiB); (0, 0) without CUDA/torch."""
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return 0.0, 0.0
+        return (
+            torch.cuda.max_memory_allocated() / 1024**3,
+            torch.cuda.max_memory_reserved() / 1024**3,
+        )
+    except Exception:  # pragma: no cover - driver/CUDA probing can fail
+        return 0.0, 0.0
+
+
+def _best_epoch(log_history: list[dict], best_checkpoint: str | None) -> float | None:
+    """Epoch of the checkpoint Trainer restored, when identifiable in log_history."""
+    if not best_checkpoint:
+        return None
+    match = re.search(r"checkpoint-(\d+)\s*$", str(best_checkpoint))
+    if not match:
+        return None
+    step = int(match.group(1))
+    for entry in reversed(log_history):
+        if entry.get("step") == step and entry.get("epoch") is not None:
+            return entry["epoch"]
+    return None
+
+
+def _final_eval(log_history: list[dict]) -> tuple[float | None, float | None]:
+    """(epoch, eval_loss) of the last recorded evaluation, else (None, None)."""
+    for entry in reversed(log_history):
+        if "eval_loss" in entry:
+            return entry.get("epoch"), entry["eval_loss"]
+    return None, None
+
+
+def _validated_best_checkpoint(state) -> tuple[str, float]:
+    """Fail closed on best-checkpoint selection before anything is saved.
+
+    Returns (best_model_checkpoint, best_metric) only when the checkpoint path
+    is non-empty, exists on disk and the metric is finite.
+    """
+    checkpoint = getattr(state, "best_model_checkpoint", None)
+    if not checkpoint:
+        raise RuntimeError(
+            "load_best_model_at_end=True but the trainer reported no "
+            "best_model_checkpoint; refusing to save an unvalidated adapter"
+        )
+    metric = getattr(state, "best_metric", None)
+    try:
+        metric_value = float(metric)
+    except (TypeError, ValueError):
+        raise RuntimeError(
+            f"load_best_model_at_end=True but best_metric is not numeric: {metric!r}"
+        ) from None
+    if not math.isfinite(metric_value):
+        raise RuntimeError(
+            f"load_best_model_at_end=True but best_metric is not finite: {metric_value!r}"
+        )
+    if not Path(str(checkpoint)).is_dir():
+        raise RuntimeError(
+            "load_best_model_at_end=True but best_model_checkpoint does not exist: "
+            f"{checkpoint}"
+        )
+    return str(checkpoint), metric_value
+
+
 def train(config: dict, workspace: str | Path) -> dict:
     from datasets import Dataset
 
@@ -188,10 +269,18 @@ def train(config: dict, workspace: str | Path) -> dict:
     load_in_4bit = bool(model_cfg.get("load_in_4bit", False))
     use_exact_model_name = bool(model_cfg.get("use_exact_model_name", False))
 
+    # Canonical explicit config. Unsloth 2026.9.4 forwards a user-provided
+    # `quantization_config` through **kwargs (loader.py: "Respect a user-provided
+    # quantization_config") and still quantizes `*-BF16` repos on the fly, so the
+    # request is not left to the `load_in_4bit` flag alone.
+    quantization_config = (
+        model_mod.bitsandbytes_config() if load_in_4bit else None
+    )
+
     print(f"Loading {model_id}...")
 
     # Normal BF16/FP16 LoRA, not QLoRA (unless the config asks for 4bit).
-    model, processor = FastModel.from_pretrained(
+    load_kwargs = dict(
         model_name=model_id,
         max_seq_length=max_seq_length,
         load_in_4bit=load_in_4bit,
@@ -199,8 +288,35 @@ def train(config: dict, workspace: str | Path) -> dict:
         trust_remote_code=trust_remote_code,
         use_exact_model_name=use_exact_model_name,
     )
+    if quantization_config is not None:
+        load_kwargs["quantization_config"] = quantization_config
+        # Embedding offload can leave parameters outside CUDA, which the
+        # requested-4-bit placement validation rejects. Explicit for 4-bit
+        # only; BF16 loads keep Unsloth's default.
+        load_kwargs["offload_embedding"] = False
+
+    model, processor = FastModel.from_pretrained(**load_kwargs)
+
+    quantization_after_load = model_mod.assert_effective_quantization(
+        model, load_in_4bit, context=f"Unsloth load of {model_id}"
+    )
 
     model = FastModel.get_peft_model(model, **peft_kwargs(lora_cfg, kind))
+
+    # Assert again on the PEFT-wrapped object: counting modules on the final
+    # object is what makes the recorded metadata meaningful.
+    quantization = model_mod.assert_effective_quantization(
+        model, load_in_4bit, context=f"PEFT-wrapped {model_id}"
+    )
+    if load_in_4bit:
+        print(
+            "Effective 4-bit: "
+            f"{quantization['quantized_module_count']} Linear4bit modules, "
+            f"{quantization['quantized_parameter_count']} Params4bit parameters, "
+            f"quant_type={quantization['quant_type']}, "
+            f"compute_dtype={quantization['compute_dtype']}, "
+            f"double_quant={quantization['double_quant']}"
+        )
 
     # Render train/eval rows with the same prompt kwargs the evaluator uses.
     chat_template_kwargs = model_mod.configured_chat_template_kwargs(
@@ -288,6 +404,12 @@ def train(config: dict, workspace: str | Path) -> dict:
         sft_kwargs["max_length"] = max_seq_length
         sft_kwargs["dataset_text_field"] = "text"
 
+    # Optional best-checkpoint selection pass-through (e.g. eval_loss/epoch
+    # configs): Trainer then restores the best checkpoint at the end of train().
+    for key in ("load_best_model_at_end", "metric_for_best_model", "greater_is_better"):
+        if train_cfg.get(key) is not None:
+            sft_kwargs[key] = train_cfg[key]
+
     trainer_kwargs = dict(
         model=model,
         processing_class=processor,
@@ -310,15 +432,34 @@ def train(config: dict, workspace: str | Path) -> dict:
         resume_from_checkpoint = str(Path(resume_from_checkpoint).expanduser().resolve())
         print(f"Resuming from checkpoint: {resume_from_checkpoint}")
 
+    # Training-only CUDA peaks: reset after load/PEFT wrapping.
+    _reset_cuda_peak()
+
     started = time.perf_counter()
     trainer_stats = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     wall_train_seconds = time.perf_counter() - started
     print("\nTraining complete.")
     print(trainer_stats)
 
+    # Fail closed before any adapter bytes are written: with best-checkpoint
+    # selection enabled, the trainer must have restored a real checkpoint.
+    # Trainer.train() ends with `_load_best_model()` when the flag is set, so
+    # saving here writes the restored best model.
+    best_checkpoint = None
+    best_metric = None
+    if bool(train_cfg.get("load_best_model_at_end")):
+        best_checkpoint, best_metric = _validated_best_checkpoint(trainer.state)
+
     model.save_pretrained(str(adapter_dir))
     processor.save_pretrained(str(adapter_dir))
     print(f"\nSaved LoRA adapter: {adapter_dir}")
+
+    log_history = trainer.state.log_history
+    final_epoch = getattr(trainer.state, "epoch", None)
+    if final_epoch is None:
+        final_epoch = trainer_stats.metrics.get("epoch")
+    final_eval_epoch, final_eval_loss = _final_eval(log_history)
+    train_peak_allocated_gib, train_peak_reserved_gib = _cuda_peak_gib()
 
     metrics = {
         "base_model": model_id,
@@ -328,7 +469,7 @@ def train(config: dict, workspace: str | Path) -> dict:
         "adapter_dir": str(adapter_dir),
         "trainer_dir": str(trainer_dir),
         "train_metrics": trainer_stats.metrics,
-        "log_history": trainer.state.log_history,
+        "log_history": log_history,
         "model_kind": kind,
         "use_exact_model_name": use_exact_model_name,
         **model_mod.revision_metadata(revision, model, processor),
@@ -339,11 +480,23 @@ def train(config: dict, workspace: str | Path) -> dict:
             "test": _sha256(workspace / "test.jsonl"),
         },
         "seed": int(train_cfg["seed"]),
+        "num_train_epochs": float(train_cfg["num_train_epochs"]),
+        "best_model_checkpoint": best_checkpoint,
+        "best_metric": best_metric,
+        "best_epoch": _best_epoch(log_history, best_checkpoint),
+        "final_epoch": final_epoch,
+        "final_eval_epoch": final_eval_epoch,
+        "final_eval_loss": final_eval_loss,
+        "train_peak_allocated_gib": train_peak_allocated_gib,
+        "train_peak_reserved_gib": train_peak_reserved_gib,
         "precision": {
             "bf16": bool(train_cfg["bf16"]),
             "fp16": bool(train_cfg["fp16"]),
             "load_in_4bit": load_in_4bit,
         },
+        # Effective settings from the loaded modules, not the requested flags.
+        "quantization": quantization,
+        "quantization_after_load": quantization_after_load,
         "lora": peft_kwargs(lora_cfg, kind),
         "wall_train_seconds": wall_train_seconds,
         "resume_from_checkpoint": resume_from_checkpoint,

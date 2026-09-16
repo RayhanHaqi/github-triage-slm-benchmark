@@ -84,22 +84,42 @@ def evaluate(config: dict, workspace: str | Path, checkpoint: str) -> dict:
     do_sample = bool(evaluation["do_sample"])
     pad_eos = bool(evaluation.get("pad_eos", True))
     chat_template_kwargs = model_mod.configured_chat_template_kwargs(evaluation)
+    load_in_4bit = bool(model_cfg.get("load_in_4bit", False))
 
     mode, target = resolve_checkpoint(checkpoint)
     phase = "baseline" if mode == "base" else "finetuned"
 
-    print(f"Loading base model: {base_model} (kind={kind})")
+    print(f"Loading base model: {base_model} (kind={kind}, 4-bit={load_in_4bit})")
     if mode == "adapter":
         print(f"Loading LoRA adapter: {target}")
 
+    # Same explicit quantization request for base and base+adapter; an explicit
+    # canonical BitsAndBytesConfig reaches from_pretrained in both paths.
     loaded = model_mod.load_model(
         base_model,
         target if mode == "adapter" else None,
         revision=model_cfg.get("revision"),
         kind=kind,
         trust_remote_code=bool(model_cfg.get("trust_remote_code", False)),
+        load_in_4bit=load_in_4bit,
     )
     model, tokenizer = loaded.model, loaded.tokenizer
+
+    # Re-assert on the final object; quantization metadata lands in metrics.
+    quantization = model_mod.assert_effective_quantization(
+        model, load_in_4bit, context=f"{phase} model {base_model}"
+    )
+    if load_in_4bit:
+        print(
+            "Effective 4-bit: "
+            f"{quantization['quantized_module_count']} Linear4bit modules, "
+            f"{quantization['quantized_parameter_count']} Params4bit parameters, "
+            f"quant_type={quantization['quant_type']}, "
+            f"compute_dtype={quantization['compute_dtype']}, "
+            f"double_quant={quantization['double_quant']}"
+        )
+        if quantization["offload"]["cpu"] or quantization["offload"]["disk"]:
+            print(f"Offload: {quantization['offload']}")
 
     device = next(model.parameters()).device
     print(f"Model device: {device}")

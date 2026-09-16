@@ -85,7 +85,13 @@ comparison.json            accuracy, delta pp, per-class recall, confusion, vali
 ```
 
 Both metric JSONs carry `test_sha256` computed from the exact split bytes;
-`comparison.json` fails loudly if baseline and fine-tuned hashes differ.
+`comparison.json` fails loudly if baseline and fine-tuned hashes differ, if the
+base model identity/requested/resolved revision differs, or if their effective
+quantization settings (4-bit, quant type, compute dtype, double quant,
+quantized parameter devices, CPU/disk/meta offload counts) differ. Offload is
+compared as counts, not module names, since adapter wrapping changes module-key
+prefixes. Metric JSONs written before quantization metadata existed (legacy
+BF16 runs) compare as BF16.
 
 ## Benchmark results
 
@@ -148,6 +154,27 @@ gather instead.
 - `training.vision_collator` (default `false`, vision only): `true` trains
   message rows with `UnslothVisionDataCollator` (Ministral path); `false` trains
   rendered `text` rows through the ordinary collator (Qwen3.5 text-only path).
+- `model.load_in_4bit` (default `false`): loads/evaluates/trains in 4-bit via an
+  explicit canonical `transformers.BitsAndBytesConfig` (NF4, double quant, BF16
+  compute) passed as `quantization_config` to the model only (never to the
+  tokenizer/processor) for both the transformers evaluator and Unsloth training
+  (which also quantizes official `*-BF16` repos on the fly). After every load
+  (and after PEFT wrapping in training) the harness fails closed unless the
+  loaded object really has packed bitsandbytes `Linear4bit`/`Params4bit` weights
+  (`bnb_quantized` + quant state), quant type exactly `nf4`, BF16 compute dtype,
+  nested double quantization, zero `Linear8bitLt` layers and CUDA-only placement
+  (`hf_device_map` or parameter devices on CPU/disk/meta are rejected). It
+  records effective metadata (counts, settings, placement) instead of echoing
+  the request. Default BF16 behavior is unchanged.
+- `training.load_best_model_at_end`, `training.metric_for_best_model`,
+  `training.greater_is_better` (optional): passed through to `SFTConfig`. With
+  best-checkpoint selection enabled, training fails closed before anything is
+  saved unless `Trainer` reported a non-empty, existing `best_model_checkpoint`
+  and a finite `best_metric`; the adapter is written only after
+  `Trainer.train()` restored that checkpoint. `train_metrics.json` records
+  `best_model_checkpoint`, `best_metric`, the best epoch when derivable, the
+  final `epoch` and the final-epoch `eval_loss` separately, plus CUDA training
+  peak allocated/reserved GiB.
 - Sources with `file:` are copied byte-for-byte when they are not larger than
   `cleaning.max_examples_per_class`; larger files are truncated to the first N
   rows in existing order. Remove `file:` from a source (keep `repo` and
@@ -174,11 +201,12 @@ gather instead.
 - Both `*_metrics.json` record `model_kind`, requested/resolved revision (the
   resolved SHA comes from the loaded `config._commit_hash` when exposed, else
   the requested revision is labelled `resolved_revision_source: requested`)
-  and `library_versions` (python/torch/transformers/peft/datasets/trl/unsloth/
-  unsloth_zoo plus CUDA/GPU when cheap). `train_metrics.json` additionally
-  carries sha256 of the train/val/test bytes, seed, precision/quantization
-  (`bf16`/`fp16`/`load_in_4bit`), the LoRA settings actually used and measured
-  wall training time (`wall_train_seconds`, plus the trainer's own metrics).
+  and `library_versions` (python/torch/transformers/peft/bitsandbytes/datasets/
+  trl/unsloth/unsloth_zoo plus CUDA/GPU when cheap). `train_metrics.json`
+  additionally carries sha256 of the train/val/test bytes, seed, requested
+  precision (`bf16`/`fp16`/`load_in_4bit`), effective `quantization` metadata,
+  the LoRA settings actually used and measured wall training time
+  (`wall_train_seconds`, plus the trainer's own metrics).
 - `baseline_predictions.csv` keeps the frozen 5-column format;
   `finetuned_predictions.csv` keeps the frozen 8-column format.
   Both `*_metrics.json` contain the full measurement set.

@@ -57,3 +57,6 @@ error*.txt
 *~
 .DS_Store
 tmp/
+
+# Local orchestration state
+.slim/deepwork/
