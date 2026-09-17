@@ -1,0 +1,187 @@
+{
+  "model": "04-ministral-3-14b-instruct",
+  "status": "ok",
+  "failures": [],
+  "peaks": {
+    "components": {
+      "train_setup_reserved_gib": 9.2109375,
+      "train_setup_allocated_gib": 9.199919700622559,
+      "train_training_reserved_gib": 9.939453125,
+      "train_training_allocated_gib": 9.8100905418396,
+      "baseline_load_reserved_gib": 9.201171875,
+      "baseline_load_allocated_gib": 9.189887046813965,
+      "baseline_generation_reserved_gib": 9.525390625,
+      "baseline_generation_allocated_gib": 9.211278438568115,
+      "adapter_load_reserved_gib": 9.666015625,
+      "adapter_load_allocated_gib": 9.189887046813965,
+      "adapter_generation_reserved_gib": 9.896484375,
+      "adapter_generation_allocated_gib": 9.520604610443115
+    },
+    "reserved_gib": 9.939453125,
+    "allocated_gib": 9.8100905418396,
+    "problems": []
+  },
+  "shared_gpu": {
+    "policy": "rustdesk_shared_gpu_v1",
+    "samples": [
+      {
+        "observed_at": "2026-09-16T22:20:45.557635+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "preflight-first-train-pre"
+      },
+      {
+        "observed_at": "2026-09-16T22:31:11.584018+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "preflight-first-train-post"
+      },
+      {
+        "observed_at": "2026-09-16T22:31:11.617267+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "preflight-first-baseline-pre"
+      },
+      {
+        "observed_at": "2026-09-16T22:31:36.615414+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "preflight-first-baseline-post"
+      },
+      {
+        "observed_at": "2026-09-16T22:31:36.649284+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "preflight-first-adapter-pre"
+      },
+      {
+        "observed_at": "2026-09-16T22:32:03.621844+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "preflight-first-adapter-post"
+      },
+      {
+        "observed_at": "2026-09-16T22:32:03.688865+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "baseline-pre"
+      },
+      {
+        "observed_at": "2026-09-16T22:33:42.264386+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "baseline-post"
+      },
+      {
+        "observed_at": "2026-09-16T22:33:42.301811+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "train-pre"
+      },
+      {
+        "observed_at": "2026-09-17T00:23:19.158837+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "train-post"
+      },
+      {
+        "observed_at": "2026-09-17T00:23:19.305947+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "adapter_eval-pre"
+      },
+      {
+        "observed_at": "2026-09-17T00:25:17.661250+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "adapter_eval-post"
+      },
+      {
+        "observed_at": "2026-09-17T00:25:17.697974+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13284.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.47265625,
+        "stage": "acceptance"
+      }
+    ],
+    "effective_capacity_gib": 12.47265625
+  },
+  "checked_at": "2026-09-17T00:25:17.699107+00:00"
+}

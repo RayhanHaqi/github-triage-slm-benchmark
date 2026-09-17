@@ -1,0 +1,25 @@
+{
+  "model": "01-qwen3-8b",
+  "status": "ok",
+  "failures": [],
+  "peaks": {
+    "components": {
+      "train_setup_reserved_gib": 5.931640625,
+      "train_setup_allocated_gib": 5.8627166748046875,
+      "train_training_reserved_gib": 7.28125,
+      "train_training_allocated_gib": 7.127713680267334,
+      "baseline_load_reserved_gib": 5.779296875,
+      "baseline_load_allocated_gib": 5.748590469360352,
+      "baseline_generation_reserved_gib": 6.384765625,
+      "baseline_generation_allocated_gib": 6.172614574432373,
+      "adapter_load_reserved_gib": 6.099609375,
+      "adapter_load_allocated_gib": 5.995328903198242,
+      "adapter_generation_reserved_gib": 6.69140625,
+      "adapter_generation_allocated_gib": 6.431373119354248
+    },
+    "reserved_gib": 7.28125,
+    "allocated_gib": 7.127713680267334,
+    "problems": []
+  },
+  "checked_at": "2026-09-16T13:01:22.671087+00:00"
+}

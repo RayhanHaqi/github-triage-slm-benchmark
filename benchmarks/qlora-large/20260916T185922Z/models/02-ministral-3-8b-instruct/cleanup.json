@@ -1,0 +1,60 @@
+{
+  "status": "ok",
+  "model": "02-ministral-3-8b-instruct",
+  "gpu_before": [],
+  "gpu_after": [],
+  "gpu_sharing": {
+    "policy": "rustdesk_shared_gpu_v1",
+    "allowed_executable": "/usr/share/rustdesk/rustdesk",
+    "allowance_mib": 512.0,
+    "before": {
+      "ok": true,
+      "allowed": [],
+      "foreign": [],
+      "problems": [],
+      "allowed_used_mib": 0.0
+    },
+    "after": {
+      "ok": true,
+      "allowed": [],
+      "foreign": [],
+      "problems": [],
+      "allowed_used_mib": 0.0
+    }
+  },
+  "deleted": {
+    "targets": [
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/.cache/02-ministral-3-8b-instruct",
+        "bytes": 35714866053
+      },
+      {
+        "path": "/tmp/opencode/b/20260916T185922Z/02-ministral-3-8b-instruct",
+        "bytes": 21882495
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/adapter",
+        "bytes": 195603946
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/trainer",
+        "bytes": 573447874
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/train.jsonl",
+        "bytes": 5697146
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/val.jsonl",
+        "bytes": 716214
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/test.jsonl",
+        "bytes": 640586
+      }
+    ],
+    "bytes_deleted": 36512854314,
+    "deleted_at": "2026-09-16T20:42:36.592742+00:00"
+  },
+  "completed_at": "2026-09-16T20:42:36.611360+00:00"
+}

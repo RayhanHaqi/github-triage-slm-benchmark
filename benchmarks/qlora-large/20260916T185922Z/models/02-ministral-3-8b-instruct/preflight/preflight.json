@@ -1,0 +1,378 @@
+{
+  "model": "02-ministral-3-8b-instruct",
+  "repo": "mistralai/Ministral-3-8B-Instruct-2512-BF16",
+  "requested_revision": "f6fae9795746f63c9be8344932f01275f3c63734",
+  "kind": "vision",
+  "attempt": 1,
+  "selection": {
+    "model": "02-ministral-3-8b-instruct",
+    "repo": "mistralai/Ministral-3-8B-Instruct-2512-BF16",
+    "requested_revision": "f6fae9795746f63c9be8344932f01275f3c63734",
+    "resolved_revision": "f6fae9795746f63c9be8344932f01275f3c63734",
+    "resolved_revision_source": "hf_cache_snapshot",
+    "kind": "vision",
+    "threshold": 2048,
+    "needs": {
+      "train": 8,
+      "val": 2,
+      "test": 1
+    },
+    "chat_template_kwargs": {},
+    "data_dir": "/home/tilakoid/github-triage-data",
+    "scanned": {
+      "train": 1593,
+      "val": 200,
+      "test": 200
+    },
+    "selected": {
+      "train": [
+        {
+          "index": 4,
+          "issue_number": 332706,
+          "length": 2765
+        },
+        {
+          "index": 49,
+          "issue_number": 329615,
+          "length": 2079
+        },
+        {
+          "index": 58,
+          "issue_number": 328277,
+          "length": 3342
+        },
+        {
+          "index": 110,
+          "issue_number": 326913,
+          "length": 5231
+        },
+        {
+          "index": 115,
+          "issue_number": 327592,
+          "length": 3583
+        },
+        {
+          "index": 134,
+          "issue_number": 332254,
+          "length": 2424
+        },
+        {
+          "index": 142,
+          "issue_number": 326825,
+          "length": 3388
+        },
+        {
+          "index": 169,
+          "issue_number": 327798,
+          "length": 2512
+        }
+      ],
+      "val": [
+        {
+          "index": 22,
+          "issue_number": 333547,
+          "length": 2367
+        },
+        {
+          "index": 50,
+          "issue_number": 333538,
+          "length": 3566
+        }
+      ],
+      "test": [
+        {
+          "index": 23,
+          "issue_number": 335649,
+          "length": 2519
+        }
+      ]
+    },
+    "tokenizer": {
+      "class": "PixtralProcessor",
+      "name_or_path": "mistralai/Ministral-3-8B-Instruct-2512-BF16"
+    },
+    "selected_at": "2026-09-16T19:01:01.108207+00:00"
+  },
+  "token_lengths": {
+    "train": [
+      2765,
+      2079,
+      3342,
+      5231,
+      3583,
+      2424,
+      3388,
+      2512
+    ],
+    "val": [
+      2367,
+      3566
+    ],
+    "test": [
+      2519
+    ]
+  },
+  "first": {
+    "peaks": {
+      "components": {
+        "train_setup_reserved_gib": 5.99609375,
+        "train_setup_allocated_gib": 5.954925537109375,
+        "train_training_reserved_gib": 7.296875,
+        "train_training_allocated_gib": 7.1909894943237305,
+        "baseline_load_reserved_gib": 5.818359375,
+        "baseline_load_allocated_gib": 5.784823417663574,
+        "baseline_generation_reserved_gib": 6.41796875,
+        "baseline_generation_allocated_gib": 6.303632736206055,
+        "adapter_load_reserved_gib": 6.150390625,
+        "adapter_load_allocated_gib": 6.114326477050781,
+        "adapter_generation_reserved_gib": 6.74609375,
+        "adapter_generation_allocated_gib": 6.570981979370117
+      },
+      "reserved_gib": 7.296875,
+      "allocated_gib": 7.1909894943237305,
+      "problems": []
+    },
+    "offload": false,
+    "quantization": {
+      "train": {
+        "requested_load_in_4bit": true,
+        "effective_load_in_4bit": true,
+        "quant_type": [
+          "nf4"
+        ],
+        "compute_dtype": [
+          "torch.bfloat16"
+        ],
+        "double_quant": true,
+        "quantized_module_count": 409,
+        "quantized_parameter_count": 409,
+        "packed_parameter_count": 409,
+        "unpacked_parameter_count": 0,
+        "non_params4_weight_count": 0,
+        "quantized_parameter_devices": [
+          "cuda:0"
+        ],
+        "all_parameter_devices": [
+          "cuda:0"
+        ],
+        "non_cuda_parameter_count": 0,
+        "non_cuda_parameter_devices": [],
+        "bitsandbytes_8bit_module_count": 0,
+        "bitsandbytes_available": true,
+        "bitsandbytes_version": "0.50.2",
+        "hf_device_map": null,
+        "offload": {
+          "cpu": [],
+          "disk": [],
+          "meta": []
+        }
+      },
+      "baseline": {
+        "requested_load_in_4bit": true,
+        "effective_load_in_4bit": true,
+        "quant_type": [
+          "nf4"
+        ],
+        "compute_dtype": [
+          "torch.bfloat16"
+        ],
+        "double_quant": true,
+        "quantized_module_count": 409,
+        "quantized_parameter_count": 409,
+        "packed_parameter_count": 409,
+        "unpacked_parameter_count": 0,
+        "non_params4_weight_count": 0,
+        "quantized_parameter_devices": [
+          "cuda:0"
+        ],
+        "all_parameter_devices": [
+          "cuda:0"
+        ],
+        "non_cuda_parameter_count": 0,
+        "non_cuda_parameter_devices": [],
+        "bitsandbytes_8bit_module_count": 0,
+        "bitsandbytes_available": true,
+        "bitsandbytes_version": "0.50.2",
+        "hf_device_map": null,
+        "offload": {
+          "cpu": [],
+          "disk": [],
+          "meta": []
+        }
+      },
+      "adapter": {
+        "requested_load_in_4bit": true,
+        "effective_load_in_4bit": true,
+        "quant_type": [
+          "nf4"
+        ],
+        "compute_dtype": [
+          "torch.bfloat16"
+        ],
+        "double_quant": true,
+        "quantized_module_count": 409,
+        "quantized_parameter_count": 409,
+        "packed_parameter_count": 409,
+        "unpacked_parameter_count": 0,
+        "non_params4_weight_count": 0,
+        "quantized_parameter_devices": [
+          "cuda:0"
+        ],
+        "all_parameter_devices": [
+          "cuda:0"
+        ],
+        "non_cuda_parameter_count": 0,
+        "non_cuda_parameter_devices": [],
+        "bitsandbytes_8bit_module_count": 0,
+        "bitsandbytes_available": true,
+        "bitsandbytes_version": "0.50.2",
+        "hf_device_map": null,
+        "offload": {
+          "cpu": [],
+          "disk": [],
+          "meta": []
+        }
+      }
+    },
+    "eval_losses": [
+      0.7700054049491882,
+      0.5563950538635254,
+      0.5451028347015381
+    ],
+    "best_model_checkpoint": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/preflight/attempt-1/first/ws/trainer/checkpoint-3",
+    "best_metric": 0.5451028347015381,
+    "best_epoch": 3.0,
+    "vision_trainable": {
+      "vision_like_count": 0,
+      "vision_like_names": []
+    }
+  },
+  "repeat": null,
+  "total_gpu_gib": 15.45635986328125,
+  "shared_gpu": {
+    "policy": "rustdesk_shared_gpu_v1",
+    "samples": [
+      {
+        "observed_at": "2026-09-16T19:01:01.964951+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12792.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.2431640625,
+        "stage": "preflight-first-train-pre"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:08.636340+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12911.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.359375,
+        "stage": "preflight-first-train-post"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:08.675422+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12911.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.359375,
+        "stage": "preflight-first-baseline-pre"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:29.940269+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12913.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.361328125,
+        "stage": "preflight-first-baseline-post"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:29.979250+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12913.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.361328125,
+        "stage": "preflight-first-adapter-pre"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:52.137946+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12913.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.361328125,
+        "stage": "preflight-first-adapter-post"
+      }
+    ],
+    "effective_capacity_gib": 12.2431640625
+  },
+  "decision": "go",
+  "decision_reason": "peak 7.30 GiB <= 13.5 GiB",
+  "scratch_deleted": {
+    "targets": [
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/preflight/attempt-1",
+        "bytes": 773297992
+      }
+    ],
+    "bytes_deleted": 773297992,
+    "deleted_at": "2026-09-16T19:08:52.161527+00:00"
+  }
+}

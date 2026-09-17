@@ -1,0 +1,60 @@
+{
+  "status": "ok",
+  "model": "03-qwen3.5-9b",
+  "gpu_before": [],
+  "gpu_after": [],
+  "gpu_sharing": {
+    "policy": "rustdesk_shared_gpu_v1",
+    "allowed_executable": "/usr/share/rustdesk/rustdesk",
+    "allowance_mib": 512.0,
+    "before": {
+      "ok": true,
+      "allowed": [],
+      "foreign": [],
+      "problems": [],
+      "allowed_used_mib": 0.0
+    },
+    "after": {
+      "ok": true,
+      "allowed": [],
+      "foreign": [],
+      "problems": [],
+      "allowed_used_mib": 0.0
+    }
+  },
+  "deleted": {
+    "targets": [
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/.cache/03-qwen3.5-9b",
+        "bytes": 19385474773
+      },
+      {
+        "path": "/tmp/opencode/b/20260916T185922Z/03-qwen3.5-9b",
+        "bytes": 50886240
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/03-qwen3.5-9b/workspace/adapter",
+        "bytes": 193200855
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/03-qwen3.5-9b/workspace/trainer",
+        "bytes": 563702446
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/03-qwen3.5-9b/workspace/train.jsonl",
+        "bytes": 5697146
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/03-qwen3.5-9b/workspace/val.jsonl",
+        "bytes": 716214
+      },
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/03-qwen3.5-9b/workspace/test.jsonl",
+        "bytes": 640586
+      }
+    ],
+    "bytes_deleted": 20200318260,
+    "deleted_at": "2026-09-16T22:20:33.596855+00:00"
+  },
+  "completed_at": "2026-09-16T22:20:33.615378+00:00"
+}

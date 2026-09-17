@@ -1,0 +1,180 @@
+{
+  "run_dir": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace",
+  "config": "01-qwen3-8b",
+  "base_identity": {
+    "base_model": "Qwen/Qwen3-8B",
+    "model_kind": "language",
+    "requested_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "resolved_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "resolved_revision_source": "model_config",
+    "quantization": {
+      "requested_load_in_4bit": true,
+      "effective_load_in_4bit": true,
+      "quant_type": [
+        "nf4"
+      ],
+      "compute_dtype": [
+        "torch.bfloat16"
+      ],
+      "double_quant": true,
+      "quantized_parameter_devices": [
+        "cuda:0"
+      ],
+      "offload_counts": {
+        "cpu": 0,
+        "disk": 0,
+        "meta": 0
+      }
+    },
+    "match": true
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/test.jsonl",
+  "test_sha256": {
+    "baseline": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+    "finetuned": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+    "match": true
+  },
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "baseline": {
+    "checkpoint": "base",
+    "mode": "base",
+    "adapter": null,
+    "quantization": {
+      "requested_load_in_4bit": true,
+      "effective_load_in_4bit": true,
+      "quant_type": [
+        "nf4"
+      ],
+      "compute_dtype": [
+        "torch.bfloat16"
+      ],
+      "double_quant": true,
+      "quantized_parameter_devices": [
+        "cuda:0"
+      ],
+      "offload_counts": {
+        "cpu": 0,
+        "disk": 0,
+        "meta": 0
+      }
+    },
+    "strict_accuracy": 0.87,
+    "semantic_accuracy": 0.87,
+    "valid_output_rate": 1.0,
+    "per_class_recall": {
+      "bug": 0.91,
+      "feature-request": 0.83
+    },
+    "per_class_support": {
+      "bug": 100,
+      "feature-request": 100
+    },
+    "confusion": {
+      "bug": {
+        "bug": 91,
+        "feature-request": 9,
+        "INVALID": 0
+      },
+      "feature-request": {
+        "bug": 17,
+        "feature-request": 83,
+        "INVALID": 0
+      }
+    },
+    "predicted_counts": {
+      "bug": 108,
+      "feature-request": 92,
+      "INVALID": 0
+    },
+    "mean_latency_ms": 235.14421452535316,
+    "median_latency_ms": 191.63971743546426,
+    "issues_per_second": 4.25270935123169,
+    "output_tokens_per_second": 10.461665004029957,
+    "total_generation_time_s": 47.02884290507063,
+    "peak_allocated_gb": 6.172614574432373,
+    "peak_reserved_gb": 6.384765625,
+    "mean_input_tokens": 375.41,
+    "median_input_tokens": 230.0,
+    "total_generated_tokens": 492
+  },
+  "finetuned": {
+    "checkpoint": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/adapter",
+    "mode": "adapter",
+    "adapter": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/adapter",
+    "quantization": {
+      "requested_load_in_4bit": true,
+      "effective_load_in_4bit": true,
+      "quant_type": [
+        "nf4"
+      ],
+      "compute_dtype": [
+        "torch.bfloat16"
+      ],
+      "double_quant": true,
+      "quantized_parameter_devices": [
+        "cuda:0"
+      ],
+      "offload_counts": {
+        "cpu": 0,
+        "disk": 0,
+        "meta": 0
+      }
+    },
+    "strict_accuracy": 0.89,
+    "semantic_accuracy": 0.89,
+    "valid_output_rate": 1.0,
+    "per_class_recall": {
+      "bug": 0.9,
+      "feature-request": 0.88
+    },
+    "per_class_support": {
+      "bug": 100,
+      "feature-request": 100
+    },
+    "confusion": {
+      "bug": {
+        "bug": 90,
+        "feature-request": 10,
+        "INVALID": 0
+      },
+      "feature-request": {
+        "bug": 12,
+        "feature-request": 88,
+        "INVALID": 0
+      }
+    },
+    "predicted_counts": {
+      "bug": 102,
+      "feature-request": 98,
+      "INVALID": 0
+    },
+    "mean_latency_ms": 304.45124912657775,
+    "median_latency_ms": 245.58507755864412,
+    "issues_per_second": 3.2845981183156288,
+    "output_tokens_per_second": 8.178649314605916,
+    "total_generation_time_s": 60.89024982531555,
+    "peak_allocated_gb": 6.431373119354248,
+    "peak_reserved_gb": 6.69140625,
+    "mean_input_tokens": 375.41,
+    "median_input_tokens": 230.0,
+    "total_generated_tokens": 498
+  },
+  "accuracy": {
+    "baseline": {
+      "strict": 0.87,
+      "semantic": 0.87
+    },
+    "finetuned": {
+      "strict": 0.89,
+      "semantic": 0.89
+    },
+    "delta_pp": {
+      "strict": 2.0000000000000018,
+      "semantic": 2.0000000000000018
+    }
+  }
+}

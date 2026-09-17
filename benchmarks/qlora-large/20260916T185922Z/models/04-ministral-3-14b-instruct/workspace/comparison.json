@@ -1,0 +1,180 @@
+{
+  "run_dir": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/04-ministral-3-14b-instruct/workspace",
+  "config": "04-ministral-3-14b-instruct",
+  "base_identity": {
+    "base_model": "mistralai/Ministral-3-14B-Instruct-2512-BF16",
+    "model_kind": "vision",
+    "requested_revision": "3cea74c1ebaf5ce5f5a2553de470e2ceab825142",
+    "resolved_revision": "3cea74c1ebaf5ce5f5a2553de470e2ceab825142",
+    "resolved_revision_source": "model_config",
+    "quantization": {
+      "requested_load_in_4bit": true,
+      "effective_load_in_4bit": true,
+      "quant_type": [
+        "nf4"
+      ],
+      "compute_dtype": [
+        "torch.bfloat16"
+      ],
+      "double_quant": true,
+      "quantized_parameter_devices": [
+        "cuda:0"
+      ],
+      "offload_counts": {
+        "cpu": 0,
+        "disk": 0,
+        "meta": 0
+      }
+    },
+    "match": true
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/04-ministral-3-14b-instruct/workspace/test.jsonl",
+  "test_sha256": {
+    "baseline": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+    "finetuned": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+    "match": true
+  },
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "baseline": {
+    "checkpoint": "base",
+    "mode": "base",
+    "adapter": null,
+    "quantization": {
+      "requested_load_in_4bit": true,
+      "effective_load_in_4bit": true,
+      "quant_type": [
+        "nf4"
+      ],
+      "compute_dtype": [
+        "torch.bfloat16"
+      ],
+      "double_quant": true,
+      "quantized_parameter_devices": [
+        "cuda:0"
+      ],
+      "offload_counts": {
+        "cpu": 0,
+        "disk": 0,
+        "meta": 0
+      }
+    },
+    "strict_accuracy": 0.855,
+    "semantic_accuracy": 0.86,
+    "valid_output_rate": 1.0,
+    "per_class_recall": {
+      "bug": 0.95,
+      "feature-request": 0.77
+    },
+    "per_class_support": {
+      "bug": 100,
+      "feature-request": 100
+    },
+    "confusion": {
+      "bug": {
+        "bug": 95,
+        "feature-request": 5,
+        "INVALID": 0
+      },
+      "feature-request": {
+        "bug": 23,
+        "feature-request": 77,
+        "INVALID": 0
+      }
+    },
+    "predicted_counts": {
+      "bug": 118,
+      "feature-request": 82,
+      "INVALID": 0
+    },
+    "mean_latency_ms": 372.068500793539,
+    "median_latency_ms": 297.5553781725466,
+    "issues_per_second": 2.687677128988945,
+    "output_tokens_per_second": 6.504178652153247,
+    "total_generation_time_s": 74.4137001587078,
+    "peak_allocated_gb": 9.211278438568115,
+    "peak_reserved_gb": 9.525390625,
+    "mean_input_tokens": 372.58,
+    "median_input_tokens": 220.5,
+    "total_generated_tokens": 484
+  },
+  "finetuned": {
+    "checkpoint": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/04-ministral-3-14b-instruct/workspace/adapter",
+    "mode": "adapter",
+    "adapter": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/04-ministral-3-14b-instruct/workspace/adapter",
+    "quantization": {
+      "requested_load_in_4bit": true,
+      "effective_load_in_4bit": true,
+      "quant_type": [
+        "nf4"
+      ],
+      "compute_dtype": [
+        "torch.bfloat16"
+      ],
+      "double_quant": true,
+      "quantized_parameter_devices": [
+        "cuda:0"
+      ],
+      "offload_counts": {
+        "cpu": 0,
+        "disk": 0,
+        "meta": 0
+      }
+    },
+    "strict_accuracy": 0.885,
+    "semantic_accuracy": 0.89,
+    "valid_output_rate": 1.0,
+    "per_class_recall": {
+      "bug": 0.89,
+      "feature-request": 0.89
+    },
+    "per_class_support": {
+      "bug": 100,
+      "feature-request": 100
+    },
+    "confusion": {
+      "bug": {
+        "bug": 89,
+        "feature-request": 11,
+        "INVALID": 0
+      },
+      "feature-request": {
+        "bug": 11,
+        "feature-request": 89,
+        "INVALID": 0
+      }
+    },
+    "predicted_counts": {
+      "bug": 100,
+      "feature-request": 100,
+      "INVALID": 0
+    },
+    "mean_latency_ms": 466.1293012672104,
+    "median_latency_ms": 365.8386366441846,
+    "issues_per_second": 2.1453274816267047,
+    "output_tokens_per_second": 5.470585078148097,
+    "total_generation_time_s": 93.22586025344208,
+    "peak_allocated_gb": 9.520604610443115,
+    "peak_reserved_gb": 9.896484375,
+    "mean_input_tokens": 372.58,
+    "median_input_tokens": 220.5,
+    "total_generated_tokens": 510
+  },
+  "accuracy": {
+    "baseline": {
+      "strict": 0.855,
+      "semantic": 0.86
+    },
+    "finetuned": {
+      "strict": 0.885,
+      "semantic": 0.89
+    },
+    "delta_pp": {
+      "strict": 3.0000000000000027,
+      "semantic": 3.0000000000000027
+    }
+  }
+}

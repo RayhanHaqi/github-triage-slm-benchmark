@@ -1,0 +1,160 @@
+{
+  "track": "qlora-large",
+  "run_id": "20260916T185922Z",
+  "status": "completed",
+  "created_at": "2026-09-16T18:59:22.033931+00:00",
+  "finished_at": "2026-09-17T00:25:18.032395+00:00",
+  "last_error": null,
+  "git_commit": "b0f91ad46f8491bbe6bba9a453c761cb92efb281",
+  "python": "/home/tilakoid/miniconda3/envs/github-triage/bin/python3.11",
+  "environment": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "accelerate": "1.15.0",
+    "bitsandbytes": "0.50.2",
+    "tqdm": "4.70.1"
+  },
+  "gpu": {
+    "device_index": 0,
+    "name": "NVIDIA GeForce RTX 5060 Ti",
+    "total_gib": 15.45635986328125,
+    "visible_devices": 1
+  },
+  "config_sha256": {
+    "01-qwen3-8b": "2c0056cc831db1e8780a43bcb29cf31a7ff14c6178893a577d18cf5fca32fe7c",
+    "02-ministral-3-8b-instruct": "8892b46d27dc74ed86af9a6f3b62bc033aef08f8a109ede9d7e736642c2a9bc6",
+    "03-qwen3.5-9b": "0446abb169485cdbf0991f0945b31cb58f9165d42b565dfa5d89817ef896990c",
+    "04-ministral-3-14b-instruct": "dbcc92d9a0feb59241552e226a2f7fef0e0062038d96d8ffea89b8a9979b9f2c"
+  },
+  "config_snapshot_sha256": {
+    "01-qwen3-8b": "7d88407a7a632a4e60c4d00b9eab29031266f73bb98098b1d6ce1f6dc4d2f697",
+    "02-ministral-3-8b-instruct": "957665697da0d96ea1626024cf3a03de2025935e09ed194587dae8f9cbdcd8e7",
+    "03-qwen3.5-9b": "746dca0c269882976a69efebab7eb6b20a05a7bf8242029e981e65cc8d3866f4",
+    "04-ministral-3-14b-instruct": "ed46b79d5dbe897a065fbf2adbec310ca97f86b277c4ebc203eacc0bf5c00eb8"
+  },
+  "data": {
+    "source": "/home/tilakoid/github-triage-data",
+    "splits": {
+      "train": {
+        "path": "/home/tilakoid/github-triage-data/train.jsonl",
+        "exists": true,
+        "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+        "rows": 1593
+      },
+      "val": {
+        "path": "/home/tilakoid/github-triage-data/val.jsonl",
+        "exists": true,
+        "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+        "rows": 200
+      },
+      "test": {
+        "path": "/home/tilakoid/github-triage-data/test.jsonl",
+        "exists": true,
+        "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+        "rows": 200
+      }
+    }
+  },
+  "vram": {
+    "go_gib": 13.5,
+    "repeat_max_gib": 14.25,
+    "total_gib": 15.45635986328125
+  },
+  "gpu_sharing": {
+    "policy": "rustdesk_shared_gpu_v1",
+    "allowed_executable": "/usr/share/rustdesk/rustdesk",
+    "allowance_mib": 512.0,
+    "notes": [
+      "One-time user-approved exception: RustDesk may keep running during GPU phases.",
+      "Observations are phase-boundary samples before/after GPU subprocesses, not continuous sampling; no instantaneous safety guarantee is claimed.",
+      "The imported Qwen evidence was produced without GPU sharing, so its VRAM/timing numbers are not directly comparable to models run under this policy."
+    ]
+  },
+  "models": [
+    {
+      "index": 1,
+      "slug": "01-qwen3-8b",
+      "repo": "Qwen/Qwen3-8B",
+      "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+      "kind": "language",
+      "status": "completed",
+      "failure": null,
+      "run_info": "models/01-qwen3-8b/run_info.json"
+    },
+    {
+      "index": 2,
+      "slug": "02-ministral-3-8b-instruct",
+      "repo": "mistralai/Ministral-3-8B-Instruct-2512-BF16",
+      "revision": "f6fae9795746f63c9be8344932f01275f3c63734",
+      "kind": "vision",
+      "status": "completed",
+      "failure": null,
+      "run_info": "models/02-ministral-3-8b-instruct/run_info.json"
+    },
+    {
+      "index": 3,
+      "slug": "03-qwen3.5-9b",
+      "repo": "Qwen/Qwen3.5-9B",
+      "revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+      "kind": "vision",
+      "status": "completed",
+      "failure": null,
+      "run_info": "models/03-qwen3.5-9b/run_info.json"
+    },
+    {
+      "index": 4,
+      "slug": "04-ministral-3-14b-instruct",
+      "repo": "mistralai/Ministral-3-14B-Instruct-2512-BF16",
+      "revision": "3cea74c1ebaf5ce5f5a2553de470e2ceab825142",
+      "kind": "vision",
+      "status": "completed",
+      "failure": null,
+      "run_info": "models/04-ministral-3-14b-instruct/run_info.json"
+    }
+  ],
+  "imported_qwen": {
+    "kind": "vision_continuation_qwen_import",
+    "model": "01-qwen3-8b",
+    "source_run_id": "20260916T120019Z",
+    "source_path": "benchmarks/qlora-large/20260916T120019Z",
+    "source_git_commit": "385bbb957733e37d31627ff3f67e9931c95e6946",
+    "evidence_commit": "429d5ccd885ec9188e76ae1d2685e210e5b34e7f",
+    "evidence_paths": [
+      "models/01-qwen3-8b/run_info.json",
+      "models/01-qwen3-8b/acceptance.json",
+      "models/01-qwen3-8b/cleanup.json",
+      "models/01-qwen3-8b/config.yaml",
+      "models/01-qwen3-8b/preflight/selection.json",
+      "models/01-qwen3-8b/preflight/preflight.json",
+      "models/01-qwen3-8b/workspace/baseline_metrics.json",
+      "models/01-qwen3-8b/workspace/train_metrics.json",
+      "models/01-qwen3-8b/workspace/finetuned_metrics.json",
+      "models/01-qwen3-8b/workspace/baseline_predictions.csv",
+      "models/01-qwen3-8b/workspace/finetuned_predictions.csv",
+      "models/01-qwen3-8b/workspace/comparison.json"
+    ],
+    "evidence_sha256": {
+      "models/01-qwen3-8b/run_info.json": "a9d740416dbb25478d49e3bf5d97b20cafd61a01f8207aea62122c15e938b3ac",
+      "models/01-qwen3-8b/acceptance.json": "eb5a31d9f94270b62c69a9cf3ba3ed39ef57d3142e194164c4328b1bca8a5b68",
+      "models/01-qwen3-8b/cleanup.json": "b515f3a16c777795111325e86a0d00d13734ff6ce48d5702d5dc8d0c724e9d95",
+      "models/01-qwen3-8b/config.yaml": "7d88407a7a632a4e60c4d00b9eab29031266f73bb98098b1d6ce1f6dc4d2f697",
+      "models/01-qwen3-8b/preflight/selection.json": "076fb682c42ad9fa108e40f7dc4b0cedfae995378cd8245c1725ccc162514265",
+      "models/01-qwen3-8b/preflight/preflight.json": "38039aa1c0201d94d904c98d1588133098d60cf4221ea763c344d44de8d7be4f",
+      "models/01-qwen3-8b/workspace/baseline_metrics.json": "3504a142b976022e90c9e1ba93386ccf39c104ebcc8aad66e22222fc81815d70",
+      "models/01-qwen3-8b/workspace/train_metrics.json": "f1fa1ebf793ccac39d85252cc2cbb88b6371302fa7682c569befc5fc1e598272",
+      "models/01-qwen3-8b/workspace/finetuned_metrics.json": "6db62f3bed3d2c5aa0f9c46919e367d0fa48cb53100c7039466178471a10b3db",
+      "models/01-qwen3-8b/workspace/baseline_predictions.csv": "81fa7ec87667120cd768999bc23bd8d2b475fd9ca1b910d6a645d6164b7217c0",
+      "models/01-qwen3-8b/workspace/finetuned_predictions.csv": "1c0337fb23aff31aa3db01cdfaa5d944b0c11e6e8bf6e4ddee26d6227c321d97",
+      "models/01-qwen3-8b/workspace/comparison.json": "dbe6f35fd4fc609449bcb1184a46b6df167133f7ec7142349e16d399fe771dc6"
+    },
+    "reason": "The accepted Qwen run executed the unchanged language path; the vision fix only changes the actual PEFT all-linear call for vision models, so its evidence is imported instead of rerun."
+  },
+  "latest_written": true,
+  "latest_error": null
+}

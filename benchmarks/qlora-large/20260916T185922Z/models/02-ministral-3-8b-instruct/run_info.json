@@ -1,0 +1,417 @@
+{
+  "slug": "02-ministral-3-8b-instruct",
+  "repo": "mistralai/Ministral-3-8B-Instruct-2512-BF16",
+  "revision": "f6fae9795746f63c9be8344932f01275f3c63734",
+  "kind": "vision",
+  "created_at": "2026-09-16T19:00:50.750409+00:00",
+  "status": "completed",
+  "config_sha256": "8892b46d27dc74ed86af9a6f3b62bc033aef08f8a109ede9d7e736642c2a9bc6",
+  "data": {
+    "source": "/home/tilakoid/github-triage-data",
+    "splits": {
+      "train": {
+        "path": "/home/tilakoid/github-triage-data/train.jsonl",
+        "exists": true,
+        "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+        "rows": 1593
+      },
+      "val": {
+        "path": "/home/tilakoid/github-triage-data/val.jsonl",
+        "exists": true,
+        "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+        "rows": 200
+      },
+      "test": {
+        "path": "/home/tilakoid/github-triage-data/test.jsonl",
+        "exists": true,
+        "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+        "rows": 200
+      }
+    }
+  },
+  "phases": {
+    "preflight": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T19:00:50.868079+00:00",
+          "ended": "2026-09-16T19:08:52.162250+00:00",
+          "seconds": 481.294
+        }
+      ],
+      "finished_at": "2026-09-16T19:08:52.162265+00:00"
+    },
+    "baseline": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T19:08:52.162816+00:00",
+          "ended": "2026-09-16T19:10:04.650698+00:00",
+          "seconds": 72.488
+        }
+      ],
+      "finished_at": "2026-09-16T19:10:04.650711+00:00"
+    },
+    "train": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T19:10:04.651184+00:00",
+          "ended": "2026-09-16T20:41:12.762560+00:00",
+          "seconds": 5468.111
+        }
+      ],
+      "finished_at": "2026-09-16T20:41:12.762578+00:00"
+    },
+    "adapter_eval": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T20:41:12.762932+00:00",
+          "ended": "2026-09-16T20:42:36.278556+00:00",
+          "seconds": 83.515
+        }
+      ],
+      "finished_at": "2026-09-16T20:42:36.278568+00:00"
+    },
+    "comparison": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T20:42:36.279012+00:00",
+          "ended": "2026-09-16T20:42:36.280115+00:00",
+          "seconds": 0.001
+        }
+      ],
+      "finished_at": "2026-09-16T20:42:36.280122+00:00"
+    },
+    "acceptance": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T20:42:36.280386+00:00",
+          "ended": "2026-09-16T20:42:36.318556+00:00",
+          "seconds": 0.038
+        }
+      ],
+      "finished_at": "2026-09-16T20:42:36.318565+00:00"
+    },
+    "cleanup": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T20:42:36.318932+00:00",
+          "ended": "2026-09-16T20:42:36.611965+00:00",
+          "seconds": 0.293
+        }
+      ],
+      "finished_at": "2026-09-16T20:42:36.611974+00:00"
+    }
+  },
+  "cleanup": {
+    "status": "ok",
+    "model": "02-ministral-3-8b-instruct",
+    "gpu_before": [],
+    "gpu_after": [],
+    "gpu_sharing": {
+      "policy": "rustdesk_shared_gpu_v1",
+      "allowed_executable": "/usr/share/rustdesk/rustdesk",
+      "allowance_mib": 512.0,
+      "before": {
+        "ok": true,
+        "allowed": [],
+        "foreign": [],
+        "problems": [],
+        "allowed_used_mib": 0.0
+      },
+      "after": {
+        "ok": true,
+        "allowed": [],
+        "foreign": [],
+        "problems": [],
+        "allowed_used_mib": 0.0
+      }
+    },
+    "deleted": {
+      "targets": [
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/.cache/02-ministral-3-8b-instruct",
+          "bytes": 35714866053
+        },
+        {
+          "path": "/tmp/opencode/b/20260916T185922Z/02-ministral-3-8b-instruct",
+          "bytes": 21882495
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/adapter",
+          "bytes": 195603946
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/trainer",
+          "bytes": 573447874
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/train.jsonl",
+          "bytes": 5697146
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/val.jsonl",
+          "bytes": 716214
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/workspace/test.jsonl",
+          "bytes": 640586
+        }
+      ],
+      "bytes_deleted": 36512854314,
+      "deleted_at": "2026-09-16T20:42:36.592742+00:00"
+    },
+    "completed_at": "2026-09-16T20:42:36.611360+00:00"
+  },
+  "config_source": "/home/tilakoid/slm-specialist/configs/qlora-large/02-ministral-3-8b-instruct.yaml",
+  "config_snapshot": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/02-ministral-3-8b-instruct/config.yaml",
+  "data_copies": {
+    "train": {
+      "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+      "rows": 1593
+    },
+    "val": {
+      "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+      "rows": 200
+    },
+    "test": {
+      "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+      "rows": 200
+    }
+  },
+  "shared_gpu": {
+    "policy": "rustdesk_shared_gpu_v1",
+    "samples": [
+      {
+        "observed_at": "2026-09-16T19:01:01.964951+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12792.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.2431640625,
+        "stage": "preflight-first-train-pre"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:08.636340+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12911.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.359375,
+        "stage": "preflight-first-train-post"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:08.675422+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12911.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.359375,
+        "stage": "preflight-first-baseline-pre"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:29.940269+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12913.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.361328125,
+        "stage": "preflight-first-baseline-post"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:29.979250+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12913.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.361328125,
+        "stage": "preflight-first-adapter-pre"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:52.137946+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12913.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.361328125,
+        "stage": "preflight-first-adapter-post"
+      },
+      {
+        "observed_at": "2026-09-16T19:08:52.201017+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12913.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.361328125,
+        "stage": "baseline-pre"
+      },
+      {
+        "observed_at": "2026-09-16T19:10:04.650404+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12851.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.30078125,
+        "stage": "baseline-post"
+      },
+      {
+        "observed_at": "2026-09-16T19:10:04.692544+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [
+          {
+            "pid": 1017672,
+            "exe": "/usr/share/rustdesk/rustdesk",
+            "used_mib": 257.0
+          }
+        ],
+        "rustdesk_used_mib": 257.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 255.0,
+        "free_mib": 12851.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.30078125,
+        "stage": "train-pre"
+      },
+      {
+        "observed_at": "2026-09-16T20:41:12.608815+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "train-post"
+      },
+      {
+        "observed_at": "2026-09-16T20:41:12.798708+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "adapter_eval-pre"
+      },
+      {
+        "observed_at": "2026-09-16T20:42:36.278217+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "adapter_eval-post"
+      },
+      {
+        "observed_at": "2026-09-16T20:42:36.317003+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "acceptance"
+      }
+    ]
+  },
+  "completed_at": "2026-09-16T20:42:36.612418+00:00"
+}

@@ -1,0 +1,91 @@
+{
+  "model": "03-qwen3.5-9b",
+  "repo": "Qwen/Qwen3.5-9B",
+  "requested_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+  "resolved_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+  "resolved_revision_source": "hf_cache_snapshot",
+  "kind": "vision",
+  "threshold": 2048,
+  "needs": {
+    "train": 8,
+    "val": 2,
+    "test": 1
+  },
+  "chat_template_kwargs": {
+    "enable_thinking": false
+  },
+  "data_dir": "/home/tilakoid/github-triage-data",
+  "scanned": {
+    "train": 1593,
+    "val": 200,
+    "test": 200
+  },
+  "selected": {
+    "train": [
+      {
+        "index": 4,
+        "issue_number": 332706,
+        "length": 2701
+      },
+      {
+        "index": 49,
+        "issue_number": 329615,
+        "length": 2052
+      },
+      {
+        "index": 58,
+        "issue_number": 328277,
+        "length": 3356
+      },
+      {
+        "index": 110,
+        "issue_number": 326913,
+        "length": 5154
+      },
+      {
+        "index": 115,
+        "issue_number": 327592,
+        "length": 3524
+      },
+      {
+        "index": 134,
+        "issue_number": 332254,
+        "length": 2389
+      },
+      {
+        "index": 142,
+        "issue_number": 326825,
+        "length": 3344
+      },
+      {
+        "index": 169,
+        "issue_number": 327798,
+        "length": 2481
+      }
+    ],
+    "val": [
+      {
+        "index": 22,
+        "issue_number": 333547,
+        "length": 2356
+      },
+      {
+        "index": 50,
+        "issue_number": 333538,
+        "length": 3497
+      }
+    ],
+    "test": [
+      {
+        "index": 23,
+        "issue_number": 335649,
+        "length": 2480
+      }
+    ]
+  },
+  "tokenizer": {
+    "class": "Qwen3VLProcessor",
+    "name_or_path": "Qwen/Qwen3.5-9B"
+  },
+  "selected_at": "2026-09-16T20:42:49.873853+00:00"
+}

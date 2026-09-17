@@ -1,0 +1,111 @@
+{
+  "phase": "finetuned",
+  "checkpoint": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/04-ministral-3-14b-instruct/workspace/adapter",
+  "mode": "adapter",
+  "base_model": "mistralai/Ministral-3-14B-Instruct-2512-BF16",
+  "adapter": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/04-ministral-3-14b-instruct/workspace/adapter",
+  "model_kind": "vision",
+  "requested_revision": "3cea74c1ebaf5ce5f5a2553de470e2ceab825142",
+  "resolved_revision": "3cea74c1ebaf5ce5f5a2553de470e2ceab825142",
+  "resolved_revision_source": "model_config",
+  "quantization": {
+    "requested_load_in_4bit": true,
+    "effective_load_in_4bit": true,
+    "quant_type": [
+      "nf4"
+    ],
+    "compute_dtype": [
+      "torch.bfloat16"
+    ],
+    "double_quant": true,
+    "quantized_module_count": 451,
+    "quantized_parameter_count": 451,
+    "packed_parameter_count": 451,
+    "unpacked_parameter_count": 0,
+    "non_params4_weight_count": 0,
+    "quantized_parameter_devices": [
+      "cuda:0"
+    ],
+    "all_parameter_devices": [
+      "cuda:0"
+    ],
+    "non_cuda_parameter_count": 0,
+    "non_cuda_parameter_devices": [],
+    "bitsandbytes_8bit_module_count": 0,
+    "bitsandbytes_available": true,
+    "bitsandbytes_version": "0.50.2",
+    "hf_device_map": null,
+    "offload": {
+      "cpu": [],
+      "disk": [],
+      "meta": []
+    }
+  },
+  "library_versions": {
+    "python": "3.11.16",
+    "torch": "2.11.0+cu128",
+    "transformers": "5.5.0",
+    "peft": "0.20.0",
+    "bitsandbytes": "0.50.2",
+    "datasets": "4.3.0",
+    "trl": "0.24.0",
+    "unsloth": "2026.9.4",
+    "unsloth_zoo": "2026.9.3",
+    "cuda": "12.8",
+    "cuda_available": true,
+    "gpu": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ]
+  },
+  "split": "test",
+  "split_path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/04-ministral-3-14b-instruct/workspace/test.jsonl",
+  "test_sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+  "labels": [
+    "bug",
+    "feature-request"
+  ],
+  "examples": 200,
+  "strict_accuracy": 0.885,
+  "semantic_accuracy": 0.89,
+  "valid_output_rate": 1.0,
+  "strict_correct": 177,
+  "semantic_correct": 178,
+  "valid_predictions": 200,
+  "per_class_recall": {
+    "bug": 0.89,
+    "feature-request": 0.89
+  },
+  "per_class_support": {
+    "bug": 100,
+    "feature-request": 100
+  },
+  "confusion": {
+    "bug": {
+      "bug": 89,
+      "feature-request": 11,
+      "INVALID": 0
+    },
+    "feature-request": {
+      "bug": 11,
+      "feature-request": 89,
+      "INVALID": 0
+    }
+  },
+  "predicted_counts": {
+    "bug": 100,
+    "feature-request": 100,
+    "INVALID": 0
+  },
+  "mean_input_tokens": 372.58,
+  "median_input_tokens": 220.5,
+  "total_generated_tokens": 510,
+  "output_tokens_per_second": 5.470585078148097,
+  "mean_latency_ms": 466.1293012672104,
+  "median_latency_ms": 365.8386366441846,
+  "issues_per_second": 2.1453274816267047,
+  "total_generation_time_s": 93.22586025344208,
+  "peak_allocated_gb": 9.520604610443115,
+  "peak_reserved_gb": 9.896484375,
+  "load_peak_allocated_gb": 9.189887046813965,
+  "load_peak_reserved_gb": 9.666015625
+}

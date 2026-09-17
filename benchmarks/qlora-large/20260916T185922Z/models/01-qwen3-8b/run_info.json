@@ -1,0 +1,183 @@
+{
+  "slug": "01-qwen3-8b",
+  "repo": "Qwen/Qwen3-8B",
+  "revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "kind": "language",
+  "created_at": "2026-09-16T12:00:19.173122+00:00",
+  "status": "completed",
+  "config_sha256": "2c0056cc831db1e8780a43bcb29cf31a7ff14c6178893a577d18cf5fca32fe7c",
+  "data": {
+    "source": "/home/tilakoid/github-triage-data",
+    "splits": {
+      "train": {
+        "path": "/home/tilakoid/github-triage-data/train.jsonl",
+        "exists": true,
+        "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+        "rows": 1593
+      },
+      "val": {
+        "path": "/home/tilakoid/github-triage-data/val.jsonl",
+        "exists": true,
+        "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+        "rows": 200
+      },
+      "test": {
+        "path": "/home/tilakoid/github-triage-data/test.jsonl",
+        "exists": true,
+        "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+        "rows": 200
+      }
+    }
+  },
+  "phases": {
+    "preflight": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T12:00:19.248836+00:00",
+          "ended": "2026-09-16T12:05:08.811466+00:00",
+          "seconds": 289.562
+        }
+      ],
+      "finished_at": "2026-09-16T12:05:08.811475+00:00"
+    },
+    "baseline": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T12:05:08.812050+00:00",
+          "ended": "2026-09-16T12:06:10.731103+00:00",
+          "seconds": 61.919
+        }
+      ],
+      "finished_at": "2026-09-16T12:06:10.731141+00:00"
+    },
+    "train": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T12:06:10.732314+00:00",
+          "ended": "2026-09-16T13:00:06.240071+00:00",
+          "seconds": 3235.508
+        }
+      ],
+      "finished_at": "2026-09-16T13:00:06.240089+00:00"
+    },
+    "adapter_eval": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T13:00:06.240863+00:00",
+          "ended": "2026-09-16T13:01:22.667411+00:00",
+          "seconds": 76.426
+        }
+      ],
+      "finished_at": "2026-09-16T13:01:22.667438+00:00"
+    },
+    "comparison": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T13:01:22.668429+00:00",
+          "ended": "2026-09-16T13:01:22.669413+00:00",
+          "seconds": 0.001
+        }
+      ],
+      "finished_at": "2026-09-16T13:01:22.669422+00:00"
+    },
+    "acceptance": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T13:01:22.669620+00:00",
+          "ended": "2026-09-16T13:01:22.671247+00:00",
+          "seconds": 0.001
+        }
+      ],
+      "finished_at": "2026-09-16T13:01:22.671253+00:00"
+    },
+    "cleanup": {
+      "status": "ok",
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": "ok",
+          "started": "2026-09-16T13:01:22.671432+00:00",
+          "ended": "2026-09-16T13:01:22.894420+00:00",
+          "seconds": 0.223
+        }
+      ],
+      "finished_at": "2026-09-16T13:01:22.894429+00:00"
+    }
+  },
+  "cleanup": {
+    "status": "ok",
+    "model": "01-qwen3-8b",
+    "gpu_before": [],
+    "gpu_after": [],
+    "deleted": {
+      "targets": [
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/.cache/01-qwen3-8b",
+          "bytes": 16399309120
+        },
+        {
+          "path": "/tmp/opencode/b/20260916T120019Z/01-qwen3-8b",
+          "bytes": 1766397
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/adapter",
+          "bytes": 186094528
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/trainer",
+          "bytes": 550767853
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/train.jsonl",
+          "bytes": 5697146
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/val.jsonl",
+          "bytes": 716214
+        },
+        {
+          "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/workspace/test.jsonl",
+          "bytes": 640586
+        }
+      ],
+      "bytes_deleted": 17144991844,
+      "deleted_at": "2026-09-16T13:01:22.875096+00:00"
+    },
+    "completed_at": "2026-09-16T13:01:22.893965+00:00"
+  },
+  "config_source": "/home/tilakoid/slm-specialist/configs/qlora-large/01-qwen3-8b.yaml",
+  "config_snapshot": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T120019Z/models/01-qwen3-8b/config.yaml",
+  "data_copies": {
+    "train": {
+      "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
+      "rows": 1593
+    },
+    "val": {
+      "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
+      "rows": 200
+    },
+    "test": {
+      "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
+      "rows": 200
+    }
+  },
+  "completed_at": "2026-09-16T13:01:22.894896+00:00"
+}

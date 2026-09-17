@@ -1,0 +1,344 @@
+{
+  "model": "03-qwen3.5-9b",
+  "repo": "Qwen/Qwen3.5-9B",
+  "requested_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+  "kind": "vision",
+  "attempt": 1,
+  "selection": {
+    "model": "03-qwen3.5-9b",
+    "repo": "Qwen/Qwen3.5-9B",
+    "requested_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+    "resolved_revision": "c202236235762e1c871ad0ccb60c8ee5ba337b9a",
+    "resolved_revision_source": "hf_cache_snapshot",
+    "kind": "vision",
+    "threshold": 2048,
+    "needs": {
+      "train": 8,
+      "val": 2,
+      "test": 1
+    },
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    },
+    "data_dir": "/home/tilakoid/github-triage-data",
+    "scanned": {
+      "train": 1593,
+      "val": 200,
+      "test": 200
+    },
+    "selected": {
+      "train": [
+        {
+          "index": 4,
+          "issue_number": 332706,
+          "length": 2701
+        },
+        {
+          "index": 49,
+          "issue_number": 329615,
+          "length": 2052
+        },
+        {
+          "index": 58,
+          "issue_number": 328277,
+          "length": 3356
+        },
+        {
+          "index": 110,
+          "issue_number": 326913,
+          "length": 5154
+        },
+        {
+          "index": 115,
+          "issue_number": 327592,
+          "length": 3524
+        },
+        {
+          "index": 134,
+          "issue_number": 332254,
+          "length": 2389
+        },
+        {
+          "index": 142,
+          "issue_number": 326825,
+          "length": 3344
+        },
+        {
+          "index": 169,
+          "issue_number": 327798,
+          "length": 2481
+        }
+      ],
+      "val": [
+        {
+          "index": 22,
+          "issue_number": 333547,
+          "length": 2356
+        },
+        {
+          "index": 50,
+          "issue_number": 333538,
+          "length": 3497
+        }
+      ],
+      "test": [
+        {
+          "index": 23,
+          "issue_number": 335649,
+          "length": 2480
+        }
+      ]
+    },
+    "tokenizer": {
+      "class": "Qwen3VLProcessor",
+      "name_or_path": "Qwen/Qwen3.5-9B"
+    },
+    "selected_at": "2026-09-16T20:42:49.873853+00:00"
+  },
+  "token_lengths": {
+    "train": [
+      2701,
+      2052,
+      3356,
+      5154,
+      3524,
+      2389,
+      3344,
+      2481
+    ],
+    "val": [
+      2356,
+      3497
+    ],
+    "test": [
+      2480
+    ]
+  },
+  "first": {
+    "peaks": {
+      "components": {
+        "train_setup_reserved_gib": 7.54296875,
+        "train_setup_allocated_gib": 7.516272068023682,
+        "train_training_reserved_gib": 8.91796875,
+        "train_training_allocated_gib": 8.825382232666016,
+        "baseline_load_reserved_gib": 7.404296875,
+        "baseline_load_allocated_gib": 7.378721714019775,
+        "baseline_generation_reserved_gib": 8.0234375,
+        "baseline_generation_allocated_gib": 7.824865818023682,
+        "adapter_load_reserved_gib": 7.7265625,
+        "adapter_load_allocated_gib": 7.67139196395874,
+        "adapter_generation_reserved_gib": 8.140625,
+        "adapter_generation_allocated_gib": 7.981695652008057
+      },
+      "reserved_gib": 8.91796875,
+      "allocated_gib": 8.825382232666016,
+      "problems": []
+    },
+    "offload": false,
+    "quantization": {
+      "train": {
+        "requested_load_in_4bit": true,
+        "effective_load_in_4bit": true,
+        "quant_type": [
+          "nf4"
+        ],
+        "compute_dtype": [
+          "torch.bfloat16"
+        ],
+        "double_quant": true,
+        "quantized_module_count": 358,
+        "quantized_parameter_count": 358,
+        "packed_parameter_count": 358,
+        "unpacked_parameter_count": 0,
+        "non_params4_weight_count": 0,
+        "quantized_parameter_devices": [
+          "cuda:0"
+        ],
+        "all_parameter_devices": [
+          "cuda:0"
+        ],
+        "non_cuda_parameter_count": 0,
+        "non_cuda_parameter_devices": [],
+        "bitsandbytes_8bit_module_count": 0,
+        "bitsandbytes_available": true,
+        "bitsandbytes_version": "0.50.2",
+        "hf_device_map": null,
+        "offload": {
+          "cpu": [],
+          "disk": [],
+          "meta": []
+        }
+      },
+      "baseline": {
+        "requested_load_in_4bit": true,
+        "effective_load_in_4bit": true,
+        "quant_type": [
+          "nf4"
+        ],
+        "compute_dtype": [
+          "torch.bfloat16"
+        ],
+        "double_quant": true,
+        "quantized_module_count": 358,
+        "quantized_parameter_count": 358,
+        "packed_parameter_count": 358,
+        "unpacked_parameter_count": 0,
+        "non_params4_weight_count": 0,
+        "quantized_parameter_devices": [
+          "cuda:0"
+        ],
+        "all_parameter_devices": [
+          "cuda:0"
+        ],
+        "non_cuda_parameter_count": 0,
+        "non_cuda_parameter_devices": [],
+        "bitsandbytes_8bit_module_count": 0,
+        "bitsandbytes_available": true,
+        "bitsandbytes_version": "0.50.2",
+        "hf_device_map": null,
+        "offload": {
+          "cpu": [],
+          "disk": [],
+          "meta": []
+        }
+      },
+      "adapter": {
+        "requested_load_in_4bit": true,
+        "effective_load_in_4bit": true,
+        "quant_type": [
+          "nf4"
+        ],
+        "compute_dtype": [
+          "torch.bfloat16"
+        ],
+        "double_quant": true,
+        "quantized_module_count": 358,
+        "quantized_parameter_count": 358,
+        "packed_parameter_count": 358,
+        "unpacked_parameter_count": 0,
+        "non_params4_weight_count": 0,
+        "quantized_parameter_devices": [
+          "cuda:0"
+        ],
+        "all_parameter_devices": [
+          "cuda:0"
+        ],
+        "non_cuda_parameter_count": 0,
+        "non_cuda_parameter_devices": [],
+        "bitsandbytes_8bit_module_count": 0,
+        "bitsandbytes_available": true,
+        "bitsandbytes_version": "0.50.2",
+        "hf_device_map": null,
+        "offload": {
+          "cpu": [],
+          "disk": [],
+          "meta": []
+        }
+      }
+    },
+    "eval_losses": [
+      12.531745910644531,
+      1.630295991897583,
+      0.5243080854415894
+    ],
+    "best_model_checkpoint": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/03-qwen3.5-9b/preflight/attempt-1/first/ws/trainer/checkpoint-3",
+    "best_metric": 0.5243080854415894,
+    "best_epoch": 3.0,
+    "vision_trainable": {
+      "vision_like_count": 0,
+      "vision_like_names": []
+    }
+  },
+  "repeat": null,
+  "total_gpu_gib": 15.45635986328125,
+  "shared_gpu": {
+    "policy": "rustdesk_shared_gpu_v1",
+    "samples": [
+      {
+        "observed_at": "2026-09-16T20:42:50.555393+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "preflight-first-train-pre"
+      },
+      {
+        "observed_at": "2026-09-16T20:48:15.204712+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "preflight-first-train-post"
+      },
+      {
+        "observed_at": "2026-09-16T20:48:15.238675+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "preflight-first-baseline-pre"
+      },
+      {
+        "observed_at": "2026-09-16T20:48:40.542283+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "preflight-first-baseline-post"
+      },
+      {
+        "observed_at": "2026-09-16T20:48:40.577322+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "preflight-first-adapter-pre"
+      },
+      {
+        "observed_at": "2026-09-16T20:49:02.207614+00:00",
+        "policy": "rustdesk_shared_gpu_v1",
+        "rustdesk": [],
+        "rustdesk_used_mib": 0.0,
+        "allowance_mib": 512.0,
+        "remaining_allowance_mib": 512.0,
+        "free_mib": 13256.0,
+        "torch_total_gib": 15.45635986328125,
+        "effective_capacity_gib": 12.4453125,
+        "stage": "preflight-first-adapter-post"
+      }
+    ],
+    "effective_capacity_gib": 12.4453125
+  },
+  "decision": "go",
+  "decision_reason": "peak 8.92 GiB <= 13.5 GiB",
+  "scratch_deleted": {
+    "targets": [
+      {
+        "path": "/home/tilakoid/slm-specialist/benchmarks/qlora-large/20260916T185922Z/models/03-qwen3.5-9b/preflight/attempt-1",
+        "bytes": 761162386
+      }
+    ],
+    "bytes_deleted": 761162386,
+    "deleted_at": "2026-09-16T20:49:02.228365+00:00"
+  }
+}
