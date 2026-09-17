@@ -52,27 +52,34 @@ pointers):
 ## Benchmark results (quick read)
 
 Strict / semantic accuracy on the frozen 200-row test split (single runs;
-deltas are adapter minus base, percentage points).
+deltas are adapter minus base, percentage points). FT peak VRAM is the
+adapter-evaluation process peak **reserved** by the PyTorch allocator (GiB,
+counters reset after model load); FT output speed is stored generated tokens
+divided by total `model.generate` elapsed, so it includes prefill and is not
+pure decode throughput. The QLoRA models 2-4 ran under the documented shared-GPU
+(RustDesk) policy while the BF16 track and the imported Qwen3-8B evidence had no
+GPU sharing, so these resource numbers are descriptive within each track and not
+a controlled efficiency ranking.
 
 BF16 LoRA track:
 
-| Model | Strict base -> FT | Delta strict | Delta semantic |
-|---|---|---|---|
-| Qwen3.5-0.8B | 0.780 -> 0.805 | +2.5 | +12.5 |
-| LFM2.5-1.2B-Instruct | 0.625 -> 0.900 | +27.5 | +25.5 |
-| Qwen3-1.7B | 0.580 -> 0.890 | +31.0 | +31.0 |
-| Qwen3.5-2B | 0.840 -> 0.890 | +5.0 | +5.0 |
-| Ministral-3-3B-Instruct | 0.610 -> 0.875 | +26.5 | +26.5 |
-| Qwen3.5-4B | 0.885 -> 0.850 | -3.5 | +1.0 |
+| Model | Strict base -> FT | Delta strict | Delta semantic | FT peak VRAM (GiB) | FT output speed (tok/s) |
+|---|---|---|---|---|---|
+| Qwen3.5-0.8B | 0.780 -> 0.805 | +2.5 | +12.5 | 1.96 | 27.12 |
+| LFM2.5-1.2B-Instruct | 0.625 -> 0.900 | +27.5 | +25.5 | 2.59 | 52.75 |
+| Qwen3-1.7B | 0.580 -> 0.890 | +31.0 | +31.0 | 3.94 | 26.96 |
+| Qwen3.5-2B | 0.840 -> 0.890 | +5.0 | +5.0 | 4.54 | 22.99 |
+| Ministral-3-3B-Instruct | 0.610 -> 0.875 | +26.5 | +26.5 | 7.95 | 18.88 |
+| Qwen3.5-4B | 0.885 -> 0.850 | -3.5 | +1.0 | 9.36 | 14.85 |
 
 QLoRA NF4 track:
 
-| Model | Strict base -> FT | Delta strict | Delta semantic |
-|---|---|---|---|
-| Qwen3-8B (imported) | 0.870 -> 0.890 | +2.0 | +2.0 |
-| Ministral-3-8B-Instruct | 0.815 -> 0.875 | +6.0 | +7.0 |
-| Qwen3.5-9B | 0.860 -> 0.890 | +3.0 | +3.0 |
-| Ministral-3-14B-Instruct | 0.855 -> 0.885 | +3.0 | +3.0 |
+| Model | Strict base -> FT | Delta strict | Delta semantic | FT peak VRAM (GiB) | FT output speed (tok/s) |
+|---|---|---|---|---|---|
+| Qwen3-8B (imported) | 0.870 -> 0.890 | +2.0 | +2.0 | 6.69 | 8.18 |
+| Ministral-3-8B-Instruct | 0.815 -> 0.875 | +6.0 | +7.0 | 6.93 | 8.20 |
+| Qwen3.5-9B | 0.860 -> 0.890 | +3.0 | +3.0 | 8.18 | 9.45 |
+| Ministral-3-14B-Instruct | 0.855 -> 0.885 | +3.0 | +3.0 | 9.90 | 5.47 |
 
 Evidence-backed takeaways:
 
