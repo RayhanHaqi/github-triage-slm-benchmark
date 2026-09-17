@@ -1,284 +1,163 @@
-# slm-specialist
+# GitHub Issue Triage - SLM Fine-Tuning Benchmark
 
-Config-driven fine-tuning harness for a small language model (SLM) that
-classifies GitHub issues. The bundled config targets the frozen VSCode triage
-experiment (bug vs feature-request); its reference inputs are the sibling
-`../github-triage-data` files, which are intentionally not committed (see
-"Artifact policy (git)").
+Case study: fine-tune several small language models (SLMs) on one narrow GitHub
+triage task, then compare every fine-tuned adapter against its own base model.
 
-Pipeline: `gather -> prepare -> baseline -> train -> evaluate -> comparison`.
+Problem: classify a `microsoft/vscode` issue as `bug` or `feature-request`
+(two classes only). This is not a general triage system - no severity,
+assignment, multi-label routing or needs-info handling - and not a generic
+framework. Internal names are intentionally unchanged: the Python package is
+`slm-specialist` and the CLI is `specialist`; only the repository identity moved
+to `github-triage-slm-benchmark`.
 
-## Layout
+Research questions:
+
+- Does fine-tuning improve over the base checkpoint, per model? (baseline vs
+  fine-tuned, same frozen test split, same evaluator)
+- How does the gain relate to nominal parameter count and measured resources
+  (training wall time, peak VRAM)?
+
+## Dataset (frozen)
+
+- Source: `microsoft/vscode` issues; classes `bug` and `feature-request`.
+- Frozen split: **1593 train / 200 val / 200 test**; temporal per-class by
+  `created_at`, seed 42; test balanced 100 bug + 100 feature-request.
+- Exact SHA-256 split pins and row counts are recorded in
+  [docs/reproduction.md](docs/reproduction.md) and in every run's
+  `manifest.json` / `comparison.json`.
+- Raw and prepared data files are intentionally not committed; see
+  [Reproduction](docs/reproduction.md).
+
+## Two tracks, no unified ranking
+
+Two completed runs, deliberately kept separate (track-local run IDs and `LATEST`
+pointers):
+
+| Track | Run ID | Configurations | Precision | Checkpoint note |
+|---|---|---|---|---|
+| BF16 LoRA | `20260915T112519Z` | 6 (roughly 0.8B - 4B nominal) | full BF16 base + LoRA | adapter = final epoch (3) |
+| QLoRA NF4 | `20260916T185922Z` | 4 (roughly 8B - 14B nominal) | 4-bit NF4 base, bf16 compute + LoRA | best checkpoint (epoch 2, lowest val loss) restored |
+
+- The BF16 track is historical; its vision-freeze behavior is **not
+  established** (Unsloth's `all-linear` handling may have silently overridden
+  the recorded freeze flags).
+- In the QLoRA track, Qwen3-8B was **imported byte-identical** from earlier run
+  `20260916T120019Z` and was not rerun; models 2-4 executed in this run. Vision
+  freeze is established for this run only.
+- Different precision, checkpoint-selection policy and provenance prevent a
+  controlled cross-track ranking: cross-model tradeoffs may be read
+  descriptively, but no causal model-size or precision ranking is claimed.
+  Matched comparisons remain baseline vs fine-tuned within one configuration.
+
+## Benchmark results (quick read)
+
+Strict / semantic accuracy on the frozen 200-row test split (single runs;
+deltas are adapter minus base, percentage points).
+
+BF16 LoRA track:
+
+| Model | Strict base -> FT | Delta strict | Delta semantic |
+|---|---|---|---|
+| Qwen3.5-0.8B | 0.780 -> 0.805 | +2.5 | +12.5 |
+| LFM2.5-1.2B-Instruct | 0.625 -> 0.900 | +27.5 | +25.5 |
+| Qwen3-1.7B | 0.580 -> 0.890 | +31.0 | +31.0 |
+| Qwen3.5-2B | 0.840 -> 0.890 | +5.0 | +5.0 |
+| Ministral-3-3B-Instruct | 0.610 -> 0.875 | +26.5 | +26.5 |
+| Qwen3.5-4B | 0.885 -> 0.850 | -3.5 | +1.0 |
+
+QLoRA NF4 track:
+
+| Model | Strict base -> FT | Delta strict | Delta semantic |
+|---|---|---|---|
+| Qwen3-8B (imported) | 0.870 -> 0.890 | +2.0 | +2.0 |
+| Ministral-3-8B-Instruct | 0.815 -> 0.875 | +6.0 | +7.0 |
+| Qwen3.5-9B | 0.860 -> 0.890 | +3.0 | +3.0 |
+| Ministral-3-14B-Instruct | 0.855 -> 0.885 | +3.0 | +3.0 |
+
+Evidence-backed takeaways:
+
+- Strict accuracy improved in **9 of 10** configurations and semantic accuracy
+  in **10 of 10**. The single strict regression (Qwen3.5-4B, -3.5 pp) still
+  recorded +1.0 pp semantic.
+- Gains do **not** order by nominal parameter count, and no "bigger is better"
+  claim is made: the largest deltas come from 1.2B-3B configurations
+  (+26.5 to +31.0 pp strict) while the smallest include both a 0.8B
+  configuration (+2.5 pp) and the 8B-14B configurations (+2.0 to +6.0 pp).
+- All 10 configurations trained and evaluated on one RTX 5060 Ti
+  (torch-visible total 15.456 GiB, CUDA 12.8, pinned versions). Peak reserved
+  VRAM: <= 9.36 GiB in BF16 adapter evaluation and <= 9.94 GiB in QLoRA
+  acceptance runs.
+- Deltas are single-run descriptive differences on a 200-row holdout; no
+  statistical significance or general-quality claim.
+
+## Case analysis and immutable evidence
+
+- Main case analysis: [docs/github-triage-benchmark.md](docs/github-triage-benchmark.md)
+  (per-model analysis; separate document).
+- BF16 track run `20260915T112519Z`: [report](benchmarks/20260915T112519Z/report.md)
+  | [results.csv](benchmarks/20260915T112519Z/results.csv)
+  | [manifest.json](benchmarks/20260915T112519Z/manifest.json)
+- QLoRA track run `20260916T185922Z`: [report](benchmarks/qlora-large/20260916T185922Z/report.md)
+  | [results.csv](benchmarks/qlora-large/20260916T185922Z/results.csv)
+  | [manifest.json](benchmarks/qlora-large/20260916T185922Z/manifest.json)
+- Reference single-config run: [runs/20260915T093353Z/](runs/20260915T093353Z/)
+  (original reference metadata, metrics, predictions).
+- `benchmarks/20260915T100825Z` is an aborted earlier attempt; it is not part
+  of the committed record.
+
+Per-model metrics, comparisons, prediction CSVs and run info live under the
+`models/` directory listed in each manifest.
+
+## Repository map
 
 ```
-configs/vscode-bug-feature.yaml   one config: sources, cleaning, split, model, LoRA, trainer, eval
-src/specialist/gather.py          copy configured raw JSON or fetch with `gh issue list`
-src/specialist/prepare.py         cleaning + temporal split + SFT jsonl (byte-compatible recipe)
-src/specialist/model.py           shared model loading (language/vision), prompts, parsers, run metadata
-src/specialist/train.py           Unsloth LoRA SFT recipe
-src/specialist/evaluate.py        shared baseline/fine-tuned evaluator (metrics + predictions CSV)
-src/specialist/cli.py             CLI, config/path resolution, run-dir orchestration, comparison
-data/                             default standalone workspace (only .gitkeep committed)
-runs/                             UTC run directories from `specialist run`
-tests/                            cheap regression tests (frozen split reproduction, parsers,
-                                  config/model selection, prompt behavior, metadata)
+configs/                     BF16 reference config + configs/qlora-large/*.yaml (4 fixed models)
+src/specialist/              gather, prepare, model loading, train, evaluate, CLI, comparison
+scripts/run_qlora_large.py   guarded sequential runner for the 4-model QLoRA track
+benchmarks/                  committed run evidence: two tracks (+ uncommitted aborted attempt)
+runs/                        reference run directory (metadata/metrics/predictions committed)
+tests/                       cheap regression tests (no GPU, no network)
+docs/                        case analysis and reproduction/operations notes
 ```
 
-## Setup
+## Getting started (tooling)
 
 ```bash
-python -m pip install -e .          # CLI + PyYAML; gather/prepare/--help work with this alone
-python -m pip install -e '.[ml]'    # torch, transformers, peft, datasets, trl, unsloth, tqdm
+git clone https://github.com/RayhanHaqi/github-triage-slm-benchmark.git   # private repository
+cd github-triage-slm-benchmark
+python -m pip install -e .                 # CLI + PyYAML only; gather/prepare/--help work with this
+specialist --help
+python -m unittest discover -s tests -v    # no GPU, no network
 ```
 
-The ML phases expect the environment used for the frozen experiment
-(`/home/tilakoid/miniconda3/envs/github-triage`). `specialist run` spawns each
-phase with `sys.executable`, so use that environment's python. The `.[ml]`
-extra pins the exact versions of the successful benchmark environment
-(`benchmarks/20260915T112519Z`); `torch==2.11.0` is a platform/index-specific
-wheel, so install the build matching your CUDA/driver when the default wheel
-does not fit.
+The ML phases (baseline/train/evaluate) need the pinned `.[ml]` extra and the
+frozen experiment environment; see [docs/reproduction.md](docs/reproduction.md).
 
-## Commands
+Reproduction constraints:
 
-```bash
-specialist gather   <config> [--run-dir DIR]   # raw/<class>.json (byte copy or live gh)
-specialist prepare  <config> [--run-dir DIR]   # train/val/test.jsonl + dataset_stats.json
-specialist baseline <config> [--run-dir DIR]   # evaluate base model -> baseline_*
-specialist train    <config> [--run-dir DIR]   # adapter/, trainer/, train_metrics.json
-specialist evaluate <config> --checkpoint <path-or-base> [--run-dir DIR]
-specialist run      <config> [--run-dir DIR]   # full pipeline in a unique UTC run dir
-```
+- The datasets and model weights are not committed, so a standalone clone cannot
+  reproduce the frozen results. Exact reproduction requires the sibling
+  `/home/tilakoid/github-triage-data` files with the recorded hashes; the QLoRA
+  runner pins that machine-specific path.
+- A live `gh issue list` gather produces a **new** dataset, not the frozen one.
+  The runner `--dry-run` validates the pinned environment, GPU identity and
+  >= 80 GiB free disk (not CPU-only).
+- Resuming a finished committed run is not a quickstart: its weights were
+  deleted at cleanup.
 
-Without `--run-dir`, phases use `paths.data_dir` (staging under `data/`).
-With `--run-dir DIR`, the phase reads/writes `DIR`; `run` snapshots the resolved
-config to `DIR/config.yaml` and executes every phase as a subprocess in that dir
-(fresh process per model load: clean Unsloth/transformers import order, VRAM
-released between phases).
-
-`--checkpoint` semantics (minimally ambiguous):
-
-- `base` (or empty) — the configured base model, written as `baseline_*`.
-- a directory containing `adapter_config.json` — base model + `PeftModel`, written as
-  `finetuned_*`. The existing frozen adapter `../github-triage-data/vscode-triage-lora`
-  loads this way; the base model always comes from config.
-- anything else (HF model id or model directory without an adapter) — evaluated as a
-  base model, written as `baseline_*`.
-
-## Run directory artifacts
-
-`specialist run` creates `runs/<UTC timestamp Z>/` (suffixed on collision)
-containing at minimum:
-
-```
-config.yaml                resolved config snapshot
-raw/                       gathered per-class raw JSON
-train.jsonl val.jsonl test.jsonl   frozen input snapshot shared by both evals
-dataset_stats.json         counts, conflicts, dropped records, split sizes
-baseline_metrics.json / baseline_predictions.csv
-train_metrics.json
-adapter/                   final LoRA adapter (+ tokenizer/processor)
-trainer/                   trainer checkpoints
-finetuned_metrics.json / finetuned_predictions.csv
-comparison.json            accuracy, delta pp, per-class recall, confusion, validity,
-                           latency, issues/sec, peak VRAM, test_sha256 equality check
-```
-
-Both metric JSONs carry `test_sha256` computed from the exact split bytes;
-`comparison.json` fails loudly if baseline and fine-tuned hashes differ, if the
-base model identity/requested/resolved revision differs, or if their effective
-quantization settings (4-bit, quant type, compute dtype, double quant,
-quantized parameter devices, CPU/disk/meta offload counts) differ. Offload is
-compared as counts, not module names, since adapter wrapping changes module-key
-prefixes. Metric JSONs written before quantization metadata existed (legacy
-BF16 runs) compare as BF16.
-
-## Benchmark results
-
-Cross-model benchmarks live under `benchmarks/<UTC timestamp Z>/`: a root
-`manifest.json` (model list, resolved revisions, dataset hashes, run-dir
-mapping), optional `attempt_status.json`, and one `models/<NN>-<slug>/`
-directory per model holding the same per-model artifacts as a `specialist run`
-directory. Aggregated `report.md` / `results.csv` live at the benchmark root
-alongside the manifest, and `benchmarks/LATEST` contains the relative run ID of
-the newest run (`20260915T112519Z`). The earlier attempt `20260915T100825Z`
-aborted on trainer compatibility bugs and is intentionally not committed. The
-successful benchmark environment is pinned in the `.[ml]` extra of
-`pyproject.toml`.
-
-## QLoRA-large track (separate, four models)
-
-`scripts/run_qlora_large.py` runs the fixed four-model 4-bit QLoRA benchmark in
-its own namespace, `benchmarks/qlora-large/<UTC run id>/`. It never writes to or
-deletes the BF16 track (`benchmarks/20260915T112519Z`, `benchmarks/LATEST`); the
-track-local `benchmarks/qlora-large/LATEST` is written only after all four
-models complete. Model order, repos, revisions, kinds and batch/GA are
-hard-coded and validated against `configs/qlora-large/*.yaml` before any
-download or GPU load.
-
-```bash
-python scripts/run_qlora_large.py --dry-run          # validate only: no download, no GPU model load
-python scripts/run_qlora_large.py                    # new run (requires a clean git tree)
-python scripts/run_qlora_large.py --resume benchmarks/qlora-large/<run-id>
-python scripts/run_qlora_large.py --resume benchmarks/qlora-large/<run-id> --retry-failed
-```
-
-New runs require the pinned ML environment and a git tree with no tracked
-changes and no untracked paths; while a run is in progress or being resumed,
-only files under that exact `benchmarks/qlora-large/<run-id>/` directory are
-tolerated, so previously retained runs and the track `LATEST` must be committed
-before the next run starts. All phases and probes run with the runner's own
-resolved `sys.executable` (there is no interpreter override flag); the manifest
-records that interpreter and `--resume` refuses a different one. The manifest
-records the git commit, config/frozen-data sha256, pinned versions and the
-PyTorch-visible GPU identity/capacity. The invariant guard re-checks clean git,
-the recorded HEAD/config digests/environment/data/GPU identity, >= 80 GiB free
-disk and no foreign GPU compute process (nvidia-smi failures are hard errors,
-not "idle") before starting every model.
-`--resume` refuses a different commit/config/environment/data/GPU and never
-reruns a phase marked successful (baseline included); a completed entry is only
-skipped after its retained evidence (run_info/acceptance/cleanup/selection/
-preflight/metrics/200-row predictions/comparison/snapshot digest) validates.
-`--retry-failed` allows exactly one retry of a phase whose failure matches the
-positive transient allowlist (HF/network 5xx/timeout/connection, AF_UNIX
-short-path, explicit external interruption); everything else, including OOM,
-quantization, NaN/Inf, architecture errors, offload and red-VRAM, is a hard
-stop. A train retry resumes only from a checkpoint that actually validates
-(directory step == `trainer_state.json.global_step`, non-empty adapter +
-optimizer + scheduler + rng states that load, readable safetensors/JSON) via a
-retained attempt-specific config; otherwise the partial train output is deleted
-and the phase restarts identically. Per model the runner first performs a
-preflight (8 train / 2 val / 1 test real rows with >= 2048 rendered tokens at
-the resolved pinned SHA, a tiny run through the production train path, and one
-quantized baseline plus one selected-adapter generation, all re-validated for
-NF4/no-offload/revision/best-checkpoint) in fresh
-`preflight/attempt-N/{first,repeat}` workspaces behind a VRAM gate
-(<= 13.50 GiB go, 13.50-14.25 repeat once, otherwise stop), then runs
-baseline -> train -> adapter eval -> comparison -> acceptance -> cleanup
-strictly sequentially.
-
-Retained under `benchmarks/qlora-large/<run-id>/`: `manifest.json` (status
-`completed` only after four successes and only then the track-local `LATEST`,
-written via sibling temp + fsync + atomic replace; otherwise `partial`/
-`failed`), per-model `config.yaml`, `run_info.json` with phase
-attempts/timestamps, `acceptance.json` (revision/quantization/hash/epoch/
-best-checkpoint/VRAM checks), `cleanup.json` (GPU-idle before/after plus bytes
-deleted, written atomically), `preflight/{selection.json, preflight.json}`,
-`workspace/` metrics, predictions and comparison, and `logs/`. Only scratch is
-deleted after acceptance (per-model `.cache/<slug>`, adapter, trainer, copied
-JSONLs, short `/tmp/opencode/b/<run-id>/<slug>`); a successful preflight attempt
-scratch is deleted before the full phases, while failed attempt diagnostics are
-kept. Retained run metadata must be committed before a new clean-tree run can
-start.
+Full instructions: [docs/reproduction.md](docs/reproduction.md).
 
 ## Artifact policy (git)
 
 Committed: source, configs, tests, run metadata (`config.yaml`,
 `dataset_stats.json`, `run_info.json`, `*_metrics.json`, `comparison.json`),
 prediction CSVs, and benchmark `manifest.json` / `report.md` / `results.csv`.
-The successful reference run `runs/20260915T093353Z/` keeps its metadata,
-metrics and predictions; its weights, logs and dataset splits stay ignored.
-Ignored everywhere: model weights and adapter binaries (`*.safetensors`,
-`*.bin`, `*.pt`, `*.pth`), `adapter/` and `trainer/` checkpoint directories,
-Unsloth/HF caches, `__pycache__` and test caches, dataset copies (`raw/`,
-`*.jsonl`), process transcripts (`*.log`, `error*.txt`) and temp files.
-
-Frozen datasets are intentionally not committed: gathered `raw/` JSON and the
-prepared `*.jsonl` splits are ignored, and the `../github-triage-data` source
-files sit outside the repository, so a standalone clone cannot reconstruct the
-frozen data. Exact reproduction requires sibling
-`../github-triage-data/bugs.json` and `features.json` matching the dataset
-hashes recorded in the run/benchmark metadata (`manifest.json`,
-`dataset_stats.json`, `train_metrics.json`). Removing `file:` from a source
-(keeping `repo`/`github_label`) switches to a non-frozen live `gh issue list`
-gather instead.
-
-## Config behavior
-
-- One YAML covers everything: source repo, class -> GitHub label mapping, local
-  source files, max examples per class, cleaning rules, temporal split ratios,
-  base model, system prompt, max sequence length, LoRA params, trainer params,
-  evaluation settings.
-- `~` and `$ENV_VARS` are expanded before path resolution; relative paths
-  resolve against the project root (parent of `configs/`).
-- Optional model fields (reference defaults unchanged): `model.revision` (passed
-  to every tokenizer/processor/model/Unsloth `from_pretrained` call),
-  `model.kind` (`language` default; `vision` loads `AutoProcessor` +
-  `AutoModelForImageTextToText` and trains with `FastVisionModel`), and
-  `model.trust_remote_code` (default `false`).
-- `evaluation.chat_template_kwargs` is the exact mapping passed to
-  `apply_chat_template(..., add_generation_prompt=True)` by the shared evaluator
-  (and used to render training rows): Qwen models `{enable_thinking: false}`,
-  LFM/Ministral `{}`. Absent key keeps the frozen `enable_thinking=False`
-  default, so the bundled reference config is unchanged.
-- `lora.target_modules` may be a YAML list or the string `all-linear`; the type
-  is preserved as written. For `model.kind: vision`, the LoRA config may set
-  `finetune_vision_layers` (default `false`), `finetune_language_layers`,
-  `finetune_attention_modules`, `finetune_mlp_modules` (default `true`), passed
-  to `FastVisionModel.get_peft_model`.
-- `training.vision_collator` (default `false`, vision only): `true` trains
-  message rows with `UnslothVisionDataCollator` (Ministral path); `false` trains
-  rendered `text` rows through the ordinary collator (Qwen3.5 text-only path).
-- `model.load_in_4bit` (default `false`): loads/evaluates/trains in 4-bit via an
-  explicit canonical `transformers.BitsAndBytesConfig` (NF4, double quant, BF16
-  compute) passed as `quantization_config` to the model only (never to the
-  tokenizer/processor) for both the transformers evaluator and Unsloth training
-  (which also quantizes official `*-BF16` repos on the fly). After every load
-  (and after PEFT wrapping in training) the harness fails closed unless the
-  loaded object really has packed bitsandbytes `Linear4bit`/`Params4bit` weights
-  (`bnb_quantized` + quant state), quant type exactly `nf4`, BF16 compute dtype,
-  nested double quantization, zero `Linear8bitLt` layers and CUDA-only placement
-  (`hf_device_map` or parameter devices on CPU/disk/meta are rejected). It
-  records effective metadata (counts, settings, placement) instead of echoing
-  the request. Default BF16 behavior is unchanged.
-- `training.load_best_model_at_end`, `training.metric_for_best_model`,
-  `training.greater_is_better` (optional): passed through to `SFTConfig`. With
-  best-checkpoint selection enabled, training fails closed before anything is
-  saved unless `Trainer` reported a non-empty, existing `best_model_checkpoint`
-  and a finite `best_metric`; the adapter is written only after
-  `Trainer.train()` restored that checkpoint. `train_metrics.json` records
-  `best_model_checkpoint`, `best_metric`, the best epoch when derivable, the
-  final `epoch` and the final-epoch `eval_loss` separately, plus CUDA training
-  peak allocated/reserved GiB.
-- Sources with `file:` are copied byte-for-byte when they are not larger than
-  `cleaning.max_examples_per_class`; larger files are truncated to the first N
-  rows in existing order. Remove `file:` from a source (keep `repo` and
-  `github_label`) to gather live with `gh issue list --state all`, keeping the
-  order `gh` returns.
-- Cleaning regexes, split ratios, prompt and hyper-parameters match the frozen
-  experiment exactly; `tests/test_prepare_repro.py` compares generated
-  `train/val/test.jsonl` with the frozen files byte-for-byte when they exist.
-
-## Reproducibility notes
-
-- Preparation preserves class order (config order), cross-label number
-  conflicts, exact-text duplicate normalization, the effective-empty rule,
-  temporal per-class `int(n*0.8)` / `int(n*0.9)` splits, one seeded RNG sequence
-  shuffling train then val then test, and JSON field order/serialization.
-- Baseline and fine-tuned runs share one evaluator: same test bytes, prompt,
-  1800-token issue-only truncation (via the underlying tokenizer for both
-  language and vision models), chat template
-  (`add_generation_prompt=True` plus `evaluation.chat_template_kwargs`, default
-  `enable_thinking=False`), greedy `max_new_tokens=12` decoding with
-  `pad_token_id=eos`, strict + semantic parsers, confusion with INVALID,
-  per-class recall, latency/throughput/token stats and peak allocated/reserved
-  VRAM (counters reset after model load).
-- Both `*_metrics.json` record `model_kind`, requested/resolved revision (the
-  resolved SHA comes from the loaded `config._commit_hash` when exposed, else
-  the requested revision is labelled `resolved_revision_source: requested`)
-  and `library_versions` (python/torch/transformers/peft/bitsandbytes/datasets/
-  trl/unsloth/unsloth_zoo plus CUDA/GPU when cheap). `train_metrics.json`
-  additionally carries sha256 of the train/val/test bytes, seed, requested
-  precision (`bf16`/`fp16`/`load_in_4bit`), effective `quantization` metadata,
-  the LoRA settings actually used and measured wall training time
-  (`wall_train_seconds`, plus the trainer's own metrics).
-- `baseline_predictions.csv` keeps the frozen 5-column format;
-  `finetuned_predictions.csv` keeps the frozen 8-column format.
-  Both `*_metrics.json` contain the full measurement set.
-- Training-time validation is loss-only (`SFTConfig.prediction_loss_only=True`
-  plus the logits-free `SFTTrainer` subclass in `src/specialist/train.py`), so
-  eval uses the fused loss path instead of Unsloth forcing unused
-  full-vocabulary logits.
+Not committed: dataset copies, model weights and adapters, trainer checkpoints,
+caches, and process logs/transcripts. Retained manifests, metrics and
+predictions are committed; diagnostic logs remain local and ignored. Only
+failed bulk-run cache and model weights were deleted locally with user approval
+- no blanket removal of retained artifacts. Details:
+[docs/reproduction.md](docs/reproduction.md).
 
 ## Tests
 

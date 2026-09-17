@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "slm-specialist"
 version = "0.1.0"
-description = "Config-driven SLM fine-tuning harness for GitHub issue triage (gather, prepare, baseline, LoRA SFT, evaluate)"
+description = "Benchmark for fine-tuning small language models on GitHub issue triage (bug vs feature-request): config-driven gather, prepare, baseline, LoRA SFT, evaluate"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
