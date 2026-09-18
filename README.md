@@ -144,6 +144,7 @@ Pinned configs skip raw `gather`, and calling `specialist gather` on them refuse
 
 ## Evidence
 
+- Published Qwen3-1.7B adapter: [Hugging Face model](https://huggingface.co/Tilakoid/qwen3-1.7b-vscode-triage-lora). This is the independently verified checkpoint-600 adapter, not an authenticated copy of the final 89.0% benchmark adapter.
 - BF16 LoRA run `20260915T112519Z`: [report](benchmarks/20260915T112519Z/report.md) | [results.csv](benchmarks/20260915T112519Z/results.csv) | [manifest.json](benchmarks/20260915T112519Z/manifest.json)
 - QLoRA NF4 run `20260916T185922Z`: [report](benchmarks/qlora-large/20260916T185922Z/report.md) | [results.csv](benchmarks/qlora-large/20260916T185922Z/results.csv) | [manifest.json](benchmarks/qlora-large/20260916T185922Z/manifest.json)
 - Per-model analysis and representative output cases: [docs/github-triage-benchmark.md](docs/github-triage-benchmark.md)
