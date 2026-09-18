@@ -166,3 +166,9 @@ tests/                       CPU-only regression tests
 ## Related benchmark
 
 [Indonesian HoASA ABSA](https://github.com/RayhanHaqi/hoasa-slm-benchmark), using small models for structured 10-aspect sentiment output.
+
+## License
+
+Code in this repository is licensed under the Apache License 2.0.
+
+Third-party models and datasets remain subject to their respective licenses and terms.
