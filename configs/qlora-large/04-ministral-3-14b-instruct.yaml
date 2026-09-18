@@ -8,9 +8,10 @@
 #
 # Relative paths resolve against this config's own `configs/qlora-large/`
 # directory: nested `configs/*/` configs do NOT get the top-level `configs/`
-# project-root shortcut. `../../` therefore lands on the project root
-# (data_dir/runs_dir) and `../../../` on its parent, where the frozen sibling
-# `github-triage-data/` dataset lives. `~` and `$ENV_VARS` are expanded first.
+# project-root shortcut, so `../../` lands on the project root (data_dir and
+# runs_dir) and `~`/`$ENV_VARS` are expanded first. The active data path is the
+# pinned public `dataset:` block below (see src/specialist/dataset.py); no
+# local sibling data is required.
 
 name: 04-ministral-3-14b-instruct
 description: "Frozen VS Code issue benchmark: Ministral-3-14B-Instruct-2512-BF16 (QLoRA NF4)."
@@ -22,21 +23,24 @@ paths:
   # Root for `specialist run` UTC run directories.
   runs_dir: ../../runs
 
-# class name -> source. `github_label` is the GitHub label to query for live
-# gathers; `file` points at a previously gathered JSON array. Remove `file`
-# (and keep repo/github_label) to gather live with `gh issue list`.
-# Mapping order is source truth: it fixes class order for cleaning/splits.
-# Three levels up from `configs/qlora-large/` reaches the project root's
-# parent, where the frozen sibling `github-triage-data/` dataset lives.
+# Pinned public dataset at an immutable full revision. The shared module
+# (src/specialist/dataset.py) owns the repo/revision/names/sizes/hashes and
+# validates this block against those constants; the values here must mirror
+# them and cannot repoint the dataset on their own.
+dataset:
+  repo: Tilakoid/vscode-bug-feature-triage
+  revision: 15c7d77e083d0cd30ae84cc5de6add1dce6cf950
+
+# class name -> source metadata. Mapping order is source truth: it fixes class
+# order for cleaning/splits and the evaluation label order. Raw `file` paths are
+# intentionally absent while the pinned dataset block is active.
 sources:
   bug:
     github_label: bug
     repo: microsoft/vscode
-    file: ../../../github-triage-data/bugs.json
   feature-request:
     github_label: feature-request
     repo: microsoft/vscode
-    file: ../../../github-triage-data/features.json
 
 cleaning:
   # Cap on rows taken per class, in existing (source) order.

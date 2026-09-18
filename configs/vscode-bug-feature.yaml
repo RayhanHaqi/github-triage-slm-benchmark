@@ -1,12 +1,16 @@
 # Config-driven SLM fine-tuning harness: VSCode bug vs feature-request triage.
 #
-# This config reproduces the frozen reference experiment from the sibling
-# ../github-triage-data directory (prepare_vscode_triage.py, baseline_eval.py,
-# finetuned_eval.py, train_lora.py), resolved from the project root. Those
-# dataset files are intentionally not committed; see README "Artifact policy".
+# The active data path is the pinned public prepared dataset below. `prepare`
+# fetches it through src/specialist/dataset.py, which owns the exact repo,
+# revision, remote/local filenames, sizes, row counts and SHA-256 digests and
+# verifies every split before use; no sibling local data is required.
 # Cleaning regexes, split ratios, prompt, LoRA/trainer hyper-parameters and
-# evaluation settings are all values here so the pipeline can be re-pointed at
-# another repo/classes by editing this file.
+# evaluation settings are values here. The dataset repo/revision are fixed by
+# the shared module constants (src/specialist/dataset.py), not by this YAML:
+# editing the block below cannot repoint the trust root.
+#
+# A legacy config without the `dataset:` block keeps the raw preparation path
+# (gathered `<workspace>/raw/<class>.json` or a configured source `file`).
 #
 # Relative filesystem paths resolve against the project root (the parent of the
 # `configs/` directory). `~` and `$ENV_VARS` are expanded before resolution.
@@ -20,19 +24,25 @@ paths:
   # Root for `specialist run` UTC run directories.
   runs_dir: runs
 
-# class name -> source. `github_label` is the GitHub label to query for live
-# gathers; `file` points at a previously gathered JSON array. Remove `file`
-# (and keep repo/github_label) to gather live with `gh issue list`.
-# Mapping order is source truth: it fixes class order for cleaning/splits.
+# Pinned public dataset at an immutable full revision. The shared module
+# (src/specialist/dataset.py) owns the repo/revision/names/sizes/hashes and
+# validates this block against those constants; the values here must mirror
+# them and cannot repoint the dataset on their own.
+dataset:
+  repo: Tilakoid/vscode-bug-feature-triage
+  revision: 15c7d77e083d0cd30ae84cc5de6add1dce6cf950
+
+# class name -> source metadata. Mapping order is source truth: it fixes class
+# order for cleaning/splits and the evaluation label order. Raw `file` paths are
+# intentionally absent while the pinned dataset block is active; remove the
+# dataset block and add `file` back to restore the legacy raw path.
 sources:
   bug:
     github_label: bug
     repo: microsoft/vscode
-    file: ../github-triage-data/bugs.json
   feature-request:
     github_label: feature-request
     repo: microsoft/vscode
-    file: ../github-triage-data/features.json
 
 cleaning:
   # Cap on rows taken per class, in existing (source) order.

@@ -15,6 +15,8 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from . import dataset as dataset_mod
+
 _FLAG_MAP = {"i": re.I, "m": re.M, "s": re.S, "x": re.X}
 
 
@@ -245,9 +247,16 @@ def save_jsonl(path: str | Path, rows: list[dict], system_prompt: str) -> None:
 
 
 def prepare(config: dict, workspace: str | Path) -> dict:
-    """Gather-independent preparation: write train/val/test jsonl + dataset_stats.json."""
+    """Write train/val/test jsonl + dataset_stats.json.
+
+    A pinned `dataset:` config fetches and verifies the exact public HF splits
+    (no raw sources involved); a legacy config keeps the raw cleaning recipe.
+    """
     workspace = Path(workspace)
     workspace.mkdir(parents=True, exist_ok=True)
+
+    if dataset_mod.dataset_config(config) is not None:
+        return _prepare_pinned(config, workspace)
 
     raw = load_raw(config, workspace)
     splits, stats = build_splits(config, raw)
@@ -266,5 +275,25 @@ def prepare(config: dict, workspace: str | Path) -> dict:
         encoding="utf-8",
     )
 
+    print(f"\nSaved: train.jsonl, val.jsonl, test.jsonl, dataset_stats.json in {workspace}")
+    return stats
+
+
+def _prepare_pinned(config: dict, workspace: Path) -> dict:
+    """Fetch/verify the pinned HF splits; stats come from trusted constants."""
+    report = dataset_mod.require_configured_dataset(config, workspace, fetch=True)
+    stats = {
+        "dataset": dataset_mod.dataset_identity(),
+        "labels": list(config["sources"]),
+        "split": {"sizes": {name: entry["rows"] for name, entry in report.items()}},
+        "system_prompt": config["model"]["system_prompt"],
+    }
+    (workspace / "dataset_stats.json").write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    for name, entry in report.items():
+        print(f"{name}.jsonl: {entry['rows']} rows sha256={entry['sha256'][:12]}")
     print(f"\nSaved: train.jsonl, val.jsonl, test.jsonl, dataset_stats.json in {workspace}")
     return stats

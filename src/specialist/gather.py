@@ -11,6 +11,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from . import dataset as dataset_mod
+
 # Same fields the frozen raw files carry; `gh` only returns what is requested.
 GH_JSON_FIELDS = "number,title,body,createdAt,closedAt"
 
@@ -48,6 +50,14 @@ def gh_issue_list(repo: str, label: str | None, limit: int) -> list:
 
 def gather(config: dict, workspace: str | Path) -> dict:
     """Gather raw issues for every configured class into `<workspace>/raw/<class>.json`."""
+    if dataset_mod.dataset_config(config) is not None:
+        raise RuntimeError(
+            f"config {config.get('name')!r} uses the pinned prepared dataset "
+            f"{dataset_mod.DATASET_REPO}@{dataset_mod.DATASET_REVISION}; gather only "
+            "applies to raw sources. Run `specialist prepare`, which fetches and "
+            "verifies the prepared splits"
+        )
+
     workspace = Path(workspace)
     raw_dir = workspace / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)

@@ -5,9 +5,12 @@ Operational guide for the GitHub issue triage SLM benchmark described in the
 commands, run-directory artifacts, the two benchmark tracks, data provenance
 and the artifact policy.
 
-This is **not** a fresh-machine quickstart. Datasets and model weights are not
-committed, and the frozen QLoRA runner pins a machine-specific data path
-(see [Frozen data and reproduction constraints](#frozen-data-and-reproduction-constraints)).
+This is **not** a complete fresh-machine quickstart. The active prepared dataset
+is public and pinned (see [Pinned dataset](#pinned-dataset-active-path)), so a
+standalone clone can fetch and verify the exact splits, but reproducing the
+published numbers still needs the pinned ML environment, a suitable GPU and the
+configured base model weights. Raw collection snapshots are not published, and
+historical run artifacts are unchanged.
 
 ## Setup
 
@@ -16,10 +19,10 @@ python -m pip install -e .          # CLI + PyYAML; gather/prepare/--help work w
 python -m pip install -e '.[ml]'    # torch, transformers, peft, datasets, trl, unsloth, tqdm
 ```
 
-The ML phases expect the environment used for the frozen experiment
-(`/home/tilakoid/miniconda3/envs/github-triage`). `specialist run` spawns each
-phase with `sys.executable`, so use that environment's python. The `.[ml]`
-extra pins the exact versions of the successful benchmark environments
+The ML phases expect the pinned environment of the benchmark: Python 3.11 and
+the `.[ml]` extras. `specialist run` spawns each phase with `sys.executable`, so
+run it with that environment's python. The `.[ml]` extra pins the exact versions
+of the successful benchmark environments
 (`benchmarks/20260915T112519Z` and `benchmarks/qlora-large/20260916T185922Z`);
 `torch==2.11.0` is a platform/index-specific wheel, so install the build matching
 your CUDA/driver when the default wheel does not fit.
@@ -27,8 +30,8 @@ your CUDA/driver when the default wheel does not fit.
 ## Commands
 
 ```bash
-specialist gather   <config> [--run-dir DIR]   # raw/<class>.json (byte copy or live gh)
-specialist prepare  <config> [--run-dir DIR]   # train/val/test.jsonl + dataset_stats.json
+specialist gather   <config> [--run-dir DIR]   # legacy configs only: raw/<class>.json (byte copy or live gh)
+specialist prepare  <config> [--run-dir DIR]   # pinned: fetch + verify splits; legacy: clean raw issues
 specialist baseline <config> [--run-dir DIR]   # evaluate base model -> baseline_*
 specialist train    <config> [--run-dir DIR]   # adapter/, trainer/, train_metrics.json
 specialist evaluate <config> --checkpoint <path-or-base> [--run-dir DIR]
@@ -39,17 +42,70 @@ Without `--run-dir`, phases use `paths.data_dir` (staging under `data/`). With
 `--run-dir DIR`, the phase reads/writes `DIR`; `run` snapshots the resolved
 config to `DIR/config.yaml` and executes every phase as a subprocess in that dir
 (fresh process per model load: clean Unsloth/transformers import order, VRAM
-released between phases).
+released between phases). Pinned configs skip `gather` in `run`.
 
 `--checkpoint` semantics (minimally ambiguous):
 
 - `base` (or empty) - the configured base model, written as `baseline_*`.
 - a directory containing `adapter_config.json` - base model + `PeftModel`,
-  written as `finetuned_*`. The frozen adapter
-  `../github-triage-data/vscode-triage-lora` loads this way; the base model
-  always comes from config.
+  written as `finetuned_*`. The base model always comes from config.
 - anything else (HF model id or model directory without an adapter) - evaluated
   as a base model, written as `baseline_*`.
+
+## Pinned dataset (active path)
+
+Active configs (`configs/vscode-bug-feature.yaml`, `configs/qlora-large/*.yaml`)
+declare a `dataset:` block. The trust root lives in
+`src/specialist/dataset.py`:
+
+- repo: `https://huggingface.co/datasets/Tilakoid/vscode-bug-feature-triage`
+- revision: `15c7d77e083d0cd30ae84cc5de6add1dce6cf950` (full immutable SHA)
+- remote -> local names: `train.jsonl` -> `train.jsonl`, `validation.jsonl` ->
+  `val.jsonl`, `test.jsonl` -> `test.jsonl`
+
+`specialist prepare configs/vscode-bug-feature.yaml` downloads only those three
+files and verifies each before use:
+
+- train: `5697146` bytes, `1593` rows, SHA-256
+  `3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b`
+- val: `716214` bytes, `200` rows, SHA-256
+  `7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348`
+- test: `640586` bytes, `200` rows, SHA-256
+  `9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025`
+
+The repo/revision are fixed by the module constants and a config must mirror
+them exactly or it fails closed. Fetches build only
+`https://huggingface.co/datasets/<repo>/resolve/<revision>/<remote>`; there is no
+`main`/HEAD/metadata fallback.
+
+Cache and failure behavior:
+
+- A verified local split is used as-is and performs no network access.
+  Standalone consumer phases (`baseline`, `train`, `evaluate`) verify the
+  configured dataset before use and fail closed on missing, wrong-size,
+  wrong-hash or wrong-row splits; they do not fetch.
+- `prepare` may fetch missing or invalid splits. It streams into a temp file in
+  the destination directory and atomically replaces the destination only after
+  exact byte size, SHA-256 and non-empty row count verify. A failed fetch keeps
+  any existing destination and removes the temp file.
+- `specialist run` skips raw `gather` for pinned configs; calling `specialist
+  gather` on one refuses. Raw gather and raw preparation remain available only
+  for legacy configs without a `dataset:` block (gathered `raw/` or a configured
+  `file`). The HF package ships only the prepared splits: raw collection cannot
+  be reconstructed from it, and live `gh issue list` output is a new dataset,
+  not reproduction.
+
+CPU-safe verification of the pinned path:
+
+```bash
+specialist prepare configs/vscode-bug-feature.yaml --run-dir /tmp/pinned-check
+sha256sum /tmp/pinned-check/train.jsonl /tmp/pinned-check/val.jsonl /tmp/pinned-check/test.jsonl
+wc -c /tmp/pinned-check/train.jsonl /tmp/pinned-check/val.jsonl /tmp/pinned-check/test.jsonl
+python -m unittest tests.test_dataset tests.test_prepare_repro -v
+```
+
+The `sha256sum` and `wc -c` outputs must match the three rows above. `wc -c`
+prints plain byte counts (`5697146`, `716214`, `640586`).
 
 ## Run directory artifacts
 
@@ -58,9 +114,10 @@ containing at minimum:
 
 ```
 config.yaml                resolved config snapshot
-raw/                       gathered per-class raw JSON
-train.jsonl val.jsonl test.jsonl   frozen input snapshot shared by both evals
+raw/                       gathered per-class raw JSON (legacy configs only)
+train.jsonl val.jsonl test.jsonl   verified pinned snapshot (or legacy prepare output)
 dataset_stats.json         counts, conflicts, dropped records, split sizes
+                           (legacy) or pinned dataset identity/sizes (pinned)
 baseline_metrics.json / baseline_predictions.csv
 train_metrics.json
 adapter/                   final LoRA adapter (+ tokenizer/processor)
@@ -81,41 +138,52 @@ BF16 runs) compare as BF16.
 
 ## Frozen data and reproduction constraints
 
-- Gathered `raw/` JSON and the prepared `*.jsonl` splits are **not** committed,
-  and the `../github-triage-data` source files sit outside the repository, so a
-  standalone clone cannot reconstruct the frozen data. Exact reproduction
-  requires the sibling files matching the recorded hashes.
-- BF16 reference config: `sources` point at `../github-triage-data/bugs.json`
-  and `../github-triage-data/features.json` for `gather`/`prepare`; the recorded
-  dataset hashes live in `manifest.json`, `dataset_stats.json` and
-  `train_metrics.json`.
-- QLoRA frozen path: `scripts/run_qlora_large.py` hard-codes
-  `FROZEN_DATA_DIR = /home/tilakoid/github-triage-data` (machine-specific, no
-  override flag) and refuses to run unless the sibling
-  `train.jsonl` / `val.jsonl` / `test.jsonl` match the pinned SHA-256 and row
-  counts exactly:
+- Prepared splits are fetched from the pinned public dataset (see
+  [Pinned dataset](#pinned-dataset-active-path)) and are not committed. Raw
+  collection snapshots are not published, so raw preparation cannot be
+  reconstructed from the HF package.
+- Historical preparation configs used sibling raw files outside the repository.
+  A legacy config without `dataset:` still resolves gathered `raw/` or a
+  configured `file`, and exact reproduction of pre-pin preparation needs those
+  original raw snapshots.
+- Recorded split evidence (identical to the pinned constants above):
   - train `3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b` (1593 rows)
   - val `7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348` (200 rows)
   - test `9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025` (200 rows)
-- Live gather: remove `file:` from a source (keeping `repo`/`github_label`) to
-  gather with `gh issue list --state all`. That produces a **new** dataset, not
-  the frozen one; it is not reproduction.
-- `--dry-run` for the QLoRA runner is not CPU-only: it validates the pinned
-  environment versions, the torch-visible GPU identity, >= 80 GiB free disk,
-  frozen data hashes and a clean git tree/HEAD - without downloading models or
-  running any phase. A new run additionally requires a git tree with no tracked
-  changes and no untracked paths.
+- Legacy live gather: remove `file:` from a source (keeping
+  `repo`/`github_label`) to gather with `gh issue list --state all`. That
+  produces a **new** dataset, not the prepared one; it is not reproduction.
+- QLoRA runner data lives in the project-local, git-ignored cache
+  `.cache/datasets/vscode-bug-feature`. New runs and `--dry-run` fetch missing
+  or invalid splits and verify them; `--resume` is verify-only and never repairs
+  missing or changed data. Run manifests record the HF repo, revision and split
+  hashes, not the cache path.
+- `--dry-run` for the QLoRA runner is not CPU-only: it fetches/verifies the
+  pinned dataset and validates the pinned environment versions, the
+  torch-visible GPU identity, >= 80 GiB free disk and a clean git tree/HEAD,
+  without downloading model weights or running any phase. A new run additionally
+  requires a git tree with no tracked changes and no untracked paths.
 - Resuming a finished committed run is **not** a quickstart: run
   `benchmarks/qlora-large/20260916T185922Z` is committed with its completed
   results documents, and its model weights/adapter evidence were deleted at
   cleanup. `--resume` is for a partial, in-progress run on the same machine.
 
+### Historical runs (pre-pin)
+
+Committed benchmark and run artifacts are unchanged and may retain old absolute
+source paths as provenance. Runs created before the pinned dataset change
+require their recorded checkout and original local data; current strict resume
+checks intentionally reject their old manifests and config digests. Do not
+rewrite those artifacts.
+
 ## BF16 reference track
 
 `configs/vscode-bug-feature.yaml` reproduces the reference experiment
-(Qwen3-1.7B baseline/FT) end to end:
+(Qwen3-1.7B baseline/FT) end to end; `specialist prepare` fetches and verifies
+the pinned splits first:
 
 ```bash
+specialist prepare configs/vscode-bug-feature.yaml
 specialist run configs/vscode-bug-feature.yaml
 ```
 
@@ -136,7 +204,7 @@ hard-coded and validated against `configs/qlora-large/*.yaml` before any
 download or GPU load.
 
 ```bash
-python scripts/run_qlora_large.py --dry-run          # validate only: no download, no GPU model load
+python scripts/run_qlora_large.py --dry-run          # fetch/verify data; validate env/GPU/disk/git (no model weights)
 python scripts/run_qlora_large.py                    # new run (requires a clean git tree)
 python scripts/run_qlora_large.py --resume benchmarks/qlora-large/<run-id>
 python scripts/run_qlora_large.py --resume benchmarks/qlora-large/<run-id> --retry-failed
@@ -149,19 +217,23 @@ tolerated, so previously retained runs and the track `LATEST` must be committed
 before the next run starts. All phases and probes run with the runner's own
 resolved `sys.executable` (there is no interpreter override flag); the manifest
 records that interpreter and `--resume` refuses a different one. The manifest
-records the git commit, config/frozen-data sha256, pinned versions and the
-PyTorch-visible GPU identity/capacity. The invariant guard re-checks clean git,
-the recorded HEAD/config digests/environment/data/GPU identity, >= 80 GiB free
-disk and no unapproved GPU compute processes before starting every model
-(nvidia-smi failures are hard errors, not "idle"; the one approved RustDesk
-exception is described under
+records the git commit, config digests, the pinned HF dataset identity
+(repo/revision/remote/local names/sizes/rows/SHA-256 per split) and the
+PyTorch-visible GPU identity/capacity. New manifests carry per-split size, row
+and SHA-256 evidence but never the local cache path. The invariant guard
+re-checks clean git, the recorded HEAD/config digests/environment/pinned dataset
+identity/GPU identity, >= 80 GiB free disk and no unapproved GPU compute
+processes before starting every model (nvidia-smi failures are hard errors, not
+"idle"; the one approved RustDesk exception is described under
 [GPU sharing policy](#gpu-sharing-policy-implemented-runner)).
 
-`--resume` refuses a different commit/config/environment/data/GPU and never
+`--resume` refuses a different commit/config/environment/dataset/GPU and never
 reruns a phase marked successful (baseline included); a completed entry is only
 skipped after its retained evidence
 (run_info/acceptance/cleanup/selection/preflight/metrics/200-row
-predictions/comparison/snapshot digest) validates. `--retry-failed` allows
+predictions/comparison/snapshot digest) validates. Dataset handling on resume is
+verify-only: the cache must match the pinned sizes/rows/hashes, and a missing or
+changed split is refused rather than repaired. `--retry-failed` allows
 exactly one retry of a phase whose failure matches the positive transient
 allowlist (HF/network 5xx/timeout/connection, AF_UNIX short-path, explicit
 external interruption); everything else, including OOM, quantization, NaN/Inf,
@@ -189,11 +261,11 @@ attempts/timestamps, `acceptance.json` (revision/quantization/hash/epoch/
 best-checkpoint/VRAM checks), `cleanup.json` (GPU process-policy state
 before/after plus bytes deleted, written atomically), `preflight/{selection.json, preflight.json}`,
 `workspace/` metrics, predictions and comparison, and `logs/`. Only scratch is
-deleted after acceptance (per-model `.cache/<slug>`, adapter, trainer, copied
-JSONLs, short `/tmp/opencode/b/<run-id>/<slug>`); a successful preflight attempt
-scratch is deleted before the full phases, while failed attempt diagnostics are
-kept. Retained run metadata must be committed before a new clean-tree run can
-start.
+deleted after acceptance (per-model run-local `.cache/<slug>`, adapter, trainer,
+copied JSONLs, the runner's short temp scratch root); a successful preflight
+attempt scratch is deleted before the full phases, while failed attempt
+diagnostics are kept. Retained run metadata must be committed before a new
+clean-tree run can start.
 
 ### GPU sharing policy (implemented runner)
 
@@ -232,10 +304,13 @@ historical BF16 track predates this policy and records no GPU sharing.
 
 ## Config behavior
 
-- One YAML covers everything: source repo, class -> GitHub label mapping, local
-  source files, max examples per class, cleaning rules, temporal split ratios,
-  base model, system prompt, max sequence length, LoRA params, trainer params,
-  evaluation settings.
+- One YAML covers source label order and metadata, max examples per class,
+  cleaning rules, temporal split ratios, base model, system prompt, max sequence
+  length, LoRA params, trainer params and evaluation settings. The `dataset:`
+  block mirrors the pinned public repo/revision; the repo, revision, remote and
+  local names, sizes, rows and hashes are fixed by
+  `src/specialist/dataset.py`, so editing the YAML cannot repoint the trust
+  root. A config without a `dataset:` block keeps the legacy raw source path.
 - `~` and `$ENV_VARS` are expanded before path resolution; relative paths
   resolve against the project root (parent of `configs/`).
 - Optional model fields (reference defaults unchanged): `model.revision` (passed
@@ -279,21 +354,27 @@ historical BF16 track predates this policy and records no GPU sharing.
   `best_model_checkpoint`, `best_metric`, the best epoch when derivable, the
   final `epoch` and the final-epoch `eval_loss` separately, plus CUDA training
   peak allocated/reserved GiB.
-- Sources with `file:` are copied byte-for-byte when they are not larger than
-  `cleaning.max_examples_per_class`; larger files are truncated to the first N
-  rows in existing order. Remove `file:` from a source (keep `repo` and
-  `github_label`) to gather live with `gh issue list --state all`, keeping the
-  order `gh` returns.
+- Legacy sources with `file:` are copied byte-for-byte when they are not larger
+  than `cleaning.max_examples_per_class`; larger files are truncated to the
+  first N rows in existing order. Removing `file:` from a legacy source (keeping
+  `repo` and `github_label`) gathers live with `gh issue list --state all`,
+  keeping the order `gh` returns. Pinned configs ignore raw sources entirely and
+  refuse `gather`.
 - Cleaning regexes, split ratios, prompt and hyper-parameters match the frozen
-  experiment exactly; `tests/test_prepare_repro.py` compares generated
-  `train/val/test.jsonl` with the frozen files byte-for-byte when they exist.
+  experiment exactly; `tests/test_prepare_repro.py` compares legacy raw
+  preparation with the frozen files byte-for-byte when they exist, while pinned
+  `prepare` is verified against the trusted constants and covered by
+  `tests/test_dataset.py`.
 
 ## Reproducibility notes
 
-- Preparation preserves class order (config order), cross-label number
-  conflicts, exact-text duplicate normalization, the effective-empty rule,
-  temporal per-class `int(n*0.8)` / `int(n*0.9)` splits, one seeded RNG sequence
-  shuffling train then val then test, and JSON field order/serialization.
+- Legacy raw preparation preserves class order (config order), cross-label
+  number conflicts, exact-text duplicate normalization, the effective-empty
+  rule, temporal per-class `int(n*0.8)` / `int(n*0.9)` splits, one seeded RNG
+  sequence shuffling train then val then test, and JSON field order/
+  serialization. The pinned prepared splits were produced with that recipe from
+  the original raw snapshots; the pinned path consumes them directly and does
+  not reconstruct raw collection.
 - Baseline and fine-tuned runs share one evaluator: same test bytes, prompt,
   1800-token issue-only truncation (via the underlying tokenizer for both
   language and vision models), chat template
@@ -335,9 +416,11 @@ and transcripts are not published. Historical failed bulk-run scratch was
 removed locally with user approval; retained manifests and logs stayed on this
 machine only.
 
-Frozen datasets are intentionally not committed; exact reproduction needs the
-sibling files described in
-[Frozen data and reproduction constraints](#frozen-data-and-reproduction-constraints).
+Prepared datasets are intentionally not committed. The active path fetches and
+verifies the pinned public splits described in
+[Pinned dataset](#pinned-dataset-active-path) (cache under
+`.cache/datasets/vscode-bug-feature` is ignored); legacy raw snapshots and
+historical run inputs are not published.
 
 ## Tests
 

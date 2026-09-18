@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import sys
 import tempfile
@@ -88,21 +89,24 @@ def make_frozen_data(tmp: Path, counts=None) -> tuple[Path, dict]:
     return data_dir, splits
 
 
-def make_config(spec: runner_mod.ModelSpec, data_dir: Path, **overrides) -> dict:
+def make_config(spec: runner_mod.ModelSpec, **overrides) -> dict:
     kind = overrides.get("kind", spec.kind)
     sources = {
-        label: {
-            "github_label": label,
-            "repo": "microsoft/vscode",
-            "file": str(data_dir / filename),
-        }
-        for label, filename in runner_mod.SOURCE_FILES.items()
+        label: {"github_label": label, "repo": "microsoft/vscode"}
+        for label in runner_mod.SOURCE_FILES
     }
     if overrides.get("sources") is not None:
         sources = overrides["sources"]
     return {
         "name": spec.slug,
         "paths": {"data_dir": "../../data", "runs_dir": "../../runs"},
+        "dataset": overrides.get(
+            "dataset",
+            {
+                "repo": runner_mod.dataset_mod.DATASET_REPO,
+                "revision": runner_mod.dataset_mod.DATASET_REVISION,
+            },
+        ),
         "sources": sources,
         "model": {
             "base_model": overrides.get("repo", spec.repo),
@@ -349,7 +353,7 @@ class FakeTrack:
         self.short_tmp = tmp / "short_tmp"
         for spec in runner_mod.EXPECTED_MODELS:
             (self.project / spec.config).write_text(
-                yaml.safe_dump(make_config(spec, self.data_dir), sort_keys=False),
+                yaml.safe_dump(make_config(spec), sort_keys=False),
                 encoding="utf-8",
             )
         self.protected = (
@@ -669,7 +673,7 @@ class FakeApprovedRun(FakeTrack):
             "gpu": dict(self.gpu),
             "config_sha256": config_sha256,
             "config_snapshot_sha256": snapshot_sha256,
-            "data": {"source": str(self.data_dir), "splits": data_report},
+            "data": runner_mod._manifest_data(data_report),
             "vram": {"go_gib": runner_mod.VRAM_GO_GIB,
                      "repeat_max_gib": runner_mod.VRAM_REPEAT_MAX_GIB,
                      "total_gib": self.gpu["total_gib"]},
@@ -834,7 +838,7 @@ class TrackConstantsTest(PatchedTrackTest):
         for spec in runner_mod.EXPECTED_MODELS:
             config = load_config(ROOT / spec.config)
             self.assertEqual(
-                runner_mod.validate_config(config, spec, data_dir=runner_mod.FROZEN_DATA_DIR),
+                runner_mod.validate_config(config, spec),
                 [],
                 spec.slug,
             )
@@ -843,23 +847,14 @@ class TrackConstantsTest(PatchedTrackTest):
 class ConfigValidationTest(unittest.TestCase):
     spec = runner_mod.EXPECTED_MODELS[0]
 
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.data_dir = Path(self.tmp.name)
-
     def config(self, **overrides) -> dict:
-        return make_config(self.spec, self.data_dir, **overrides)
+        return make_config(self.spec, **overrides)
 
     def test_expected_config_passes(self):
-        self.assertEqual(
-            runner_mod.validate_config(self.config(), self.spec, data_dir=self.data_dir), []
-        )
+        self.assertEqual(runner_mod.validate_config(self.config(), self.spec), [])
 
     def assert_refused(self, key_fragment: str, **overrides):
-        problems = runner_mod.validate_config(
-            self.config(**overrides), self.spec, data_dir=self.data_dir
-        )
+        problems = runner_mod.validate_config(self.config(**overrides), self.spec)
         self.assertTrue(
             any(key_fragment in problem for problem in problems),
             f"expected {key_fragment!r} in {problems}",
@@ -901,17 +896,17 @@ class ConfigValidationTest(unittest.TestCase):
 
     def test_vision_flags_and_collator_refused(self):
         vision = runner_mod.EXPECTED_MODELS[1]
-        config = make_config(vision, self.data_dir)
+        config = make_config(vision)
         config["lora"]["finetune_vision_layers"] = True
         self.assertTrue(
             any("finetune_vision_layers" in problem
-                for problem in runner_mod.validate_config(config, vision, data_dir=self.data_dir))
+                for problem in runner_mod.validate_config(config, vision))
         )
-        config = make_config(vision, self.data_dir)
+        config = make_config(vision)
         config["training"]["vision_collator"] = False
         self.assertTrue(
             any("vision_collator" in problem
-                for problem in runner_mod.validate_config(config, vision, data_dir=self.data_dir))
+                for problem in runner_mod.validate_config(config, vision))
         )
 
     def test_evaluation_and_benchmark_fields_refused(self):
@@ -928,45 +923,50 @@ class ConfigValidationTest(unittest.TestCase):
         self.assert_refused("benchmark.display_name", display_name="Other")
         self.assert_refused("benchmark.method", method="LoRA BF16")
 
-    def test_source_labels_and_paths_refused(self):
-        sources = {
-            "bug": {"github_label": "bug", "repo": "microsoft/vscode",
-                    "file": str(self.data_dir / "bugs.json")},
-        }
-        self.assert_refused("sources", sources=sources)
-        sources = {
-            "bug": {"github_label": "defect", "repo": "microsoft/vscode",
-                    "file": str(self.data_dir / "bugs.json")},
-            "feature-request": {"github_label": "feature-request", "repo": "microsoft/vscode",
-                                "file": str(self.data_dir / "features.json")},
-        }
-        self.assert_refused("sources.bug.github_label", sources=sources)
-        sources = {
-            "bug": {"github_label": "bug", "repo": "other/repo",
-                    "file": str(self.data_dir / "bugs.json")},
-            "feature-request": {"github_label": "feature-request", "repo": "microsoft/vscode",
-                                "file": str(self.data_dir / "features.json")},
-        }
-        self.assert_refused("sources.bug.repo", sources=sources)
-        sources = {
-            "bug": {"github_label": "bug", "repo": "microsoft/vscode",
-                    "file": str(self.data_dir / "wrong.json")},
-            "feature-request": {"github_label": "feature-request", "repo": "microsoft/vscode",
-                                "file": str(self.data_dir / "features.json")},
-        }
-        self.assert_refused("sources.bug.file", sources=sources)
-        sources = {
-            "bug": {"github_label": "bug", "repo": "microsoft/vscode", "file": None},
-            "feature-request": {"github_label": "feature-request", "repo": "microsoft/vscode",
-                                "file": str(self.data_dir / "features.json")},
-        }
-        self.assert_refused("sources.bug.file", sources=sources)
+    def test_source_labels_files_and_dataset_refused(self):
+        self.assert_refused(
+            "sources",
+            sources={"bug": {"github_label": "bug", "repo": "microsoft/vscode"}},
+        )
+        self.assert_refused(
+            "sources.bug.github_label",
+            sources={
+                "bug": {"github_label": "defect", "repo": "microsoft/vscode"},
+                "feature-request": {"github_label": "feature-request", "repo": "microsoft/vscode"},
+            },
+        )
+        self.assert_refused(
+            "sources.bug.repo",
+            sources={
+                "bug": {"github_label": "bug", "repo": "other/repo"},
+                "feature-request": {"github_label": "feature-request", "repo": "microsoft/vscode"},
+            },
+        )
+        # Raw file paths are not allowed while the pinned dataset block is active.
+        self.assert_refused(
+            "sources.bug.file",
+            sources={
+                "bug": {"github_label": "bug", "repo": "microsoft/vscode", "file": "bugs.json"},
+                "feature-request": {"github_label": "feature-request", "repo": "microsoft/vscode"},
+            },
+        )
+        # Dataset block: exact public repo and immutable full revision only.
+        self.assert_refused("missing pinned dataset block", dataset=None)
+        self.assert_refused("dataset repo", dataset={"repo": "other/dataset", "revision": "0" * 40})
+        self.assert_refused(
+            "dataset revision",
+            dataset={"repo": runner_mod.dataset_mod.DATASET_REPO, "revision": "main"},
+        )
+        self.assert_refused(
+            "dataset revision",
+            dataset={"repo": runner_mod.dataset_mod.DATASET_REPO, "revision": "0" * 40},
+        )
 
     def test_static_validation_refuses_swapped_identity_for_one_model(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         track = FakeTrack(Path(tmp.name))
-        swapped = make_config(runner_mod.EXPECTED_MODELS[1], track.data_dir, repo="Qwen/Qwen3-8B")
+        swapped = make_config(runner_mod.EXPECTED_MODELS[1], repo="Qwen/Qwen3-8B")
         (track.project / runner_mod.EXPECTED_MODELS[1].config).write_text(
             yaml.safe_dump(swapped, sort_keys=False), encoding="utf-8"
         )
@@ -981,6 +981,165 @@ class ConfigValidationTest(unittest.TestCase):
             with self.assertRaises(runner_mod.RunnerError) as ctx:
                 track.runner(dry_run=True).run()
         self.assertIn("base_model", str(ctx.exception))
+
+
+class PinnedDatasetFlowTest(PatchedTrackTest):
+    """Runner dataset behavior: new/dry fetch, resume verify-only, provenance."""
+
+    @staticmethod
+    def _serve(body: bytes, calls: list):
+        def fake_urlopen(url, timeout=60.0):
+            calls.append(url)
+            return io.BytesIO(body)
+
+        return fake_urlopen
+
+    def test_dry_run_fetches_missing_split(self):
+        body = (self.track.data_dir / "val.jsonl").read_bytes()
+        (self.track.data_dir / "val.jsonl").unlink()
+        calls: list[str] = []
+        with mock.patch.object(
+            runner_mod.dataset_mod, "_urlopen", side_effect=self._serve(body, calls)
+        ):
+            self.assertEqual(self.track.runner(dry_run=True).run(), 0)
+        self.assertEqual(len(calls), 1)
+        self.assertIn(
+            f"{runner_mod.dataset_mod.DATASET_REPO}/resolve/"
+            f"{runner_mod.dataset_mod.DATASET_REVISION}/",
+            calls[0],
+        )
+        self.assertEqual((self.track.data_dir / "val.jsonl").read_bytes(), body)
+
+    def test_new_run_fetches_and_manifest_records_pinned_identity(self):
+        body = (self.track.data_dir / "val.jsonl").read_bytes()
+        (self.track.data_dir / "val.jsonl").unlink()
+        calls: list[str] = []
+        with mock.patch.object(
+            runner_mod.dataset_mod, "_urlopen", side_effect=self._serve(body, calls)
+        ):
+            self.assertEqual(self.track.runner().run(), 0)
+        self.assertEqual(len(calls), 1)
+
+        manifest = runner_mod.read_json(self.track.run_dir() / "manifest.json")
+        identity = manifest["data"]["dataset"]
+        self.assertEqual(identity["repo"], runner_mod.dataset_mod.DATASET_REPO)
+        self.assertEqual(identity["revision"], runner_mod.dataset_mod.DATASET_REVISION)
+        self.assertEqual(identity["splits"]["val"]["remote"], "validation.jsonl")
+        self.assertEqual(
+            identity["splits"]["test"]["sha256"],
+            runner_mod.dataset_mod.DATASET_SPLITS["test"]["sha256"],
+        )
+        # Dataset identity is the immutable HF coordinates, never the cache path.
+        self.assertNotIn(str(self.track.data_dir), json.dumps(identity))
+        self.assertNotIn("/home/", json.dumps(identity))
+
+    def test_manifest_data_has_no_local_paths(self):
+        self.assertEqual(self.track.runner().run(), 0)
+        manifest = runner_mod.read_json(self.track.run_dir() / "manifest.json")
+        data = manifest["data"]
+        # Full identity equality with the current pinned constants.
+        self.assertEqual(data["dataset"], runner_mod.dataset_mod.dataset_identity())
+        self.assertNotIn(str(self.track.data_dir), json.dumps(data))
+        self.assertNotIn("/home/", json.dumps(data))
+        for name, entry in data["splits"].items():
+            self.assertEqual(set(entry), {"size", "rows", "sha256"}, name)
+        self.assertEqual(
+            data["splits"]["val"]["sha256"], self.track.splits["val"]["sha256"]
+        )
+
+    def test_resume_rejects_missing_or_changed_dataset_identity(self):
+        self.assertEqual(self.track.runner().run(), 0)
+        run_dir = self.track.run_dir()
+        manifest_path = run_dir / "manifest.json"
+        original = manifest_path.read_bytes()
+
+        def resume_expecting(fragment: str, mutate) -> None:
+            manifest = json.loads(original.decode("utf-8"))
+            mutate(manifest)
+            runner_mod.write_json_atomic(manifest_path, manifest)
+            mutated = manifest_path.read_bytes()
+            with mock.patch.object(
+                runner_mod.dataset_mod, "_urlopen",
+                side_effect=AssertionError("identity check must not fetch"),
+            ):
+                with self.assertRaises(runner_mod.RunnerError) as ctx:
+                    self.track.runner(resume=run_dir).run()
+            self.assertIn(fragment, str(ctx.exception))
+            # Refusal happens before any manifest mutation.
+            self.assertEqual(manifest_path.read_bytes(), mutated)
+
+        resume_expecting(
+            "no pinned dataset identity",
+            lambda m: m["data"].pop("dataset"),
+        )
+
+        def set_repo(manifest):
+            manifest["data"]["dataset"]["repo"] = "other/dataset"
+
+        resume_expecting("dataset identity differs", set_repo)
+
+        def set_revision(manifest):
+            manifest["data"]["dataset"]["revision"] = "0" * 40
+
+        resume_expecting("dataset identity differs", set_revision)
+
+        def set_hash(manifest):
+            manifest["data"]["dataset"]["splits"]["train"]["sha256"] = "0" * 64
+
+        resume_expecting("dataset identity differs", set_hash)
+
+        # A valid identity resumes normally.
+        manifest_path.write_bytes(original)
+        self.assertEqual(self.track.runner(resume=run_dir).run(), 0)
+
+    def test_resume_rejects_changed_portable_split_size(self):
+        self.assertEqual(self.track.runner().run(), 0)
+        run_dir = self.track.run_dir()
+        manifest_path = run_dir / "manifest.json"
+        manifest = runner_mod.read_json(manifest_path)
+        manifest["data"]["splits"]["train"]["size"] += 1
+        runner_mod.write_json_atomic(manifest_path, manifest)
+        mutated = manifest_path.read_bytes()
+
+        with mock.patch.object(
+            runner_mod.dataset_mod, "_urlopen",
+            side_effect=AssertionError("size check must not fetch"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner(resume=run_dir).run()
+        self.assertIn("frozen train data differs from the run manifest", str(ctx.exception))
+        # Refusal happens before any manifest mutation.
+        self.assertEqual(manifest_path.read_bytes(), mutated)
+
+    def test_resume_verifies_only_and_never_repairs(self):
+        self.assertEqual(self.track.runner().run(), 0)
+        run_dir = self.track.run_dir()
+        manifest_before = (run_dir / "manifest.json").read_bytes()
+        val_body = (self.track.data_dir / "val.jsonl").read_bytes()
+
+        (self.track.data_dir / "val.jsonl").unlink()
+        with mock.patch.object(
+            runner_mod.dataset_mod, "_urlopen",
+            side_effect=AssertionError("resume must not use the network"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner(resume=run_dir).run()
+        self.assertIn("missing frozen split", str(ctx.exception))
+        self.assertFalse((self.track.data_dir / "val.jsonl").exists())
+        self.assertEqual((run_dir / "manifest.json").read_bytes(), manifest_before)
+
+        (self.track.data_dir / "val.jsonl").write_bytes(val_body)
+        changed = b'{"issue_number": 0}\n'
+        (self.track.data_dir / "test.jsonl").write_bytes(changed)
+        with mock.patch.object(
+            runner_mod.dataset_mod, "_urlopen",
+            side_effect=AssertionError("resume must not use the network"),
+        ):
+            with self.assertRaises(runner_mod.RunnerError) as ctx:
+                self.track.runner(resume=run_dir).run()
+        self.assertIn("test", str(ctx.exception))
+        self.assertEqual((self.track.data_dir / "test.jsonl").read_bytes(), changed)
+        self.assertEqual((run_dir / "manifest.json").read_bytes(), manifest_before)
 
 
 class FrozenDataTest(unittest.TestCase):
@@ -2419,7 +2578,7 @@ class ResumeTest(PatchedTrackTest):
             f.write('{"issue_number": 999, "input": "x", "label": "bug"}\n')
         with self.assertRaises(runner_mod.RunnerError) as ctx:
             self.track.runner(resume=run_dir, retry_failed=True).run()
-        self.assertIn("frozen train data", str(ctx.exception))
+        self.assertIn("train row count mismatch", str(ctx.exception))
 
     def test_snapshot_digest_mismatch_refused(self):
         self.track.plan_error("01-qwen3-8b", "train", log="timed out")
@@ -3105,7 +3264,7 @@ class CompatibilityApprovalTest(PatchedTrackTest):
             handle.write('{"issue_number": 9999, "input": "x", "label": "bug"}\n')
         with self.assertRaises(runner_mod.RunnerError) as ctx:
             self.resume(approve_compatible_runner_change=self.target).run()
-        self.assertIn("frozen train data", str(ctx.exception))
+        self.assertIn("train row count mismatch", str(ctx.exception))
         self.assertEqual(self.manifest_bytes(), before)
 
     def test_changed_env_and_python_refused(self):

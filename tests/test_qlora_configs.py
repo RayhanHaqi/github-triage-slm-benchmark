@@ -16,16 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from specialist import cli  # noqa: E402
+from specialist import dataset as dataset_mod  # noqa: E402
 
 CONFIG_DIR = ROOT / "configs" / "qlora-large"
 REFERENCE_CONFIG = ROOT / "configs" / "vscode-bug-feature.yaml"
-# Frozen sibling dataset, derived from config resolution (the reference config's
-# `../github-triage-data/...` source resolves from the project root) instead of
-# a hardcoded host path. Absent on standalone clones -> the availability test
-# below skips.
-FROZEN_DIR = Path(
-    cli.load_config(REFERENCE_CONFIG)["sources"]["bug"]["file"]
-).parent
 
 QWEN_TARGETS = [
     "q_proj",
@@ -101,36 +95,30 @@ MODELS = [
     },
 ]
 
-# Raw `file:` values. These configs live in `configs/qlora-large/`, so three
-# levels up reach the project root's parent; the loader then resolves them to
-# the same frozen sibling data the top-level reference config names as
-# `../github-triage-data/...`.
-FROZEN_SOURCE_FILES = {
-    "bug": "../../../github-triage-data/bugs.json",
-    "feature-request": "../../../github-triage-data/features.json",
-}
-FROZEN_SOURCE_SUFFIXES = {
-    "bug": "../github-triage-data/bugs.json",
-    "feature-request": "../github-triage-data/features.json",
+PINNED_DATASET = {
+    "repo": dataset_mod.DATASET_REPO,
+    "revision": dataset_mod.DATASET_REVISION,
 }
 
 
-@unittest.skipUnless(FROZEN_DIR.is_dir(), "frozen reference data not available")
-class FrozenSourceAvailabilityTest(unittest.TestCase):
-    def test_resolved_sources_are_the_frozen_sibling_files(self):
-        reference = cli.load_config(REFERENCE_CONFIG)
+class PinnedDatasetConfigTest(unittest.TestCase):
+    def test_every_config_declares_the_pinned_dataset(self):
         for model in MODELS:
             config = cli.load_config(CONFIG_DIR / model["filename"])
             with self.subTest(model=model["filename"]):
+                self.assertEqual(config["dataset"], PINNED_DATASET)
+        reference = cli.load_config(REFERENCE_CONFIG)
+        self.assertEqual(reference["dataset"], PINNED_DATASET)
+
+    def test_sources_keep_label_order_without_raw_file_paths(self):
+        for model in MODELS:
+            config = cli.load_config(CONFIG_DIR / model["filename"])
+            with self.subTest(model=model["filename"]):
+                self.assertEqual(list(config["sources"]), ["bug", "feature-request"])
                 for label in ("bug", "feature-request"):
-                    resolved = Path(config["sources"][label]["file"])
-                    self.assertTrue(resolved.is_file())
-                    self.assertEqual(resolved.parent, FROZEN_DIR)
-                    # Same target the top-level reference config resolves to.
-                    self.assertEqual(
-                        config["sources"][label]["file"],
-                        reference["sources"][label]["file"],
-                    )
+                    self.assertEqual(config["sources"][label]["github_label"], label)
+                    self.assertEqual(config["sources"][label]["repo"], "microsoft/vscode")
+                    self.assertNotIn("file", config["sources"][label])
 
 
 class QloraConfigTest(unittest.TestCase):
@@ -260,29 +248,23 @@ class QloraConfigTest(unittest.TestCase):
                     ):
                         self.assertNotIn(key, lora)
 
-    def test_frozen_sources_resolve_to_sibling_data(self):
-        expected_root = FROZEN_DIR  # config-derived, not a hardcoded host path
+    def test_pinned_dataset_and_source_metadata_match_reference(self):
+        reference = self.reference
         for model in MODELS:
             config = self.configs[model["filename"]]
             raw = self.raw[model["filename"]]
             with self.subTest(model=model["filename"]):
+                self.assertEqual(raw["dataset"], PINNED_DATASET)
+                self.assertEqual(config["dataset"], reference["dataset"])
                 self.assertEqual(
                     list(config["sources"]), ["bug", "feature-request"]
                 )
-                for label, relative in FROZEN_SOURCE_FILES.items():
-                    self.assertEqual(raw["sources"][label]["file"], relative)
-                    self.assertTrue(
-                        relative.endswith(FROZEN_SOURCE_SUFFIXES[label])
-                    )
+                for label in ("bug", "feature-request"):
+                    self.assertEqual(raw["sources"][label]["github_label"], label)
+                    self.assertEqual(raw["sources"][label]["repo"], "microsoft/vscode")
+                    self.assertNotIn("file", raw["sources"][label])
                     self.assertEqual(
-                        raw["sources"][label]["github_label"], label
-                    )
-                    self.assertEqual(
-                        raw["sources"][label]["repo"], "microsoft/vscode"
-                    )
-                    self.assertEqual(
-                        Path(config["sources"][label]["file"]),
-                        (expected_root / Path(relative).name).resolve(),
+                        config["sources"][label], reference["sources"][label]
                     )
 
     def test_frozen_prompt_split_cleaning_and_eval_match_reference(self):
@@ -302,14 +284,7 @@ class QloraConfigTest(unittest.TestCase):
                 self.assertEqual(
                     config["paths"]["runs_dir"], reference["paths"]["runs_dir"]
                 )
-                self.assertEqual(
-                    config["sources"]["bug"]["file"],
-                    reference["sources"]["bug"]["file"],
-                )
-                self.assertEqual(
-                    config["sources"]["feature-request"]["file"],
-                    reference["sources"]["feature-request"]["file"],
-                )
+                self.assertEqual(config["dataset"], reference["dataset"])
                 for key in (
                     "split",
                     "max_user_tokens",

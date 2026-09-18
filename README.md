@@ -28,10 +28,11 @@ git clone https://github.com/RayhanHaqi/github-triage-slm-benchmark.git
 cd github-triage-slm-benchmark
 python -m pip install -e .
 specialist --help
+specialist prepare configs/vscode-bug-feature.yaml
 python -m unittest discover -s tests -v
 ```
 
-The base install has no GPU dependencies and covers the `gather` and `prepare` phases, `--help`, and the CPU-only tests. Reproducing the published numbers needs the frozen dataset and the pinned `.[ml]` environment: [docs/reproduction.md](docs/reproduction.md).
+`prepare` for the bundled config downloads only `train.jsonl`, `validation.jsonl` and `test.jsonl` from the pinned public dataset ([`Tilakoid/vscode-bug-feature-triage`](https://huggingface.co/datasets/Tilakoid/vscode-bug-feature-triage) at revision `15c7d77e083d0cd30ae84cc5de6add1dce6cf950`) into `data/`, verifies exact SHA-256, byte size and row count for every split before use, and maps the remote `validation.jsonl` to local `val.jsonl`. A verified local split is reused without network access. The base install has no GPU dependencies; preparation, `gather` for legacy configs and the CPU-only tests run without the ML stack. Reproducing the published numbers additionally needs the pinned `.[ml]` environment and base weights: [docs/reproduction.md](docs/reproduction.md).
 
 ## Why this exists
 
@@ -85,7 +86,7 @@ Semantic deltas in table order: +2.0, +7.0, +3.0, +3.0 pp. Fine-tuned evaluation
 
 ```mermaid
 flowchart LR
-    A["gather<br/>gh issue list or frozen JSON"] --> B["prepare<br/>clean + temporal split<br/>1593 / 200 / 200"]
+    A["gather (legacy only)<br/>gh issue list or raw JSON"] --> B["prepare<br/>fetch + verify pinned splits<br/>or clean raw issues<br/>1593 / 200 / 200"]
     B --> C["baseline eval<br/>base checkpoint on test split"]
     B --> D["train<br/>LoRA or QLoRA NF4<br/>on frozen train split"]
     D --> E["fine-tuned eval<br/>adapter on the same test split"]
@@ -100,7 +101,7 @@ Every configuration is evaluated on the same frozen 200-row test split, pinned b
 
 ### Dataset
 
-`microsoft/vscode` issues labeled `bug` or `feature-request`. Temporal per-class split by `created_at`, seed 42, 80/10/10 → **1593 train / 200 val / 200 test**; the test set is balanced 100 `bug` / 100 `feature-request`. The test split SHA-256 (`9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025`) is recorded in every `comparison.json` and matches across all 20 evaluations. Raw and prepared data are not committed; reproduction needs the frozen local copies described in [docs/reproduction.md](docs/reproduction.md).
+`microsoft/vscode` issues labeled `bug` or `feature-request`. Temporal per-class split by `created_at`, seed 42, 80/10/10 → **1593 train / 200 val / 200 test**; the test set is balanced 100 `bug` / 100 `feature-request`. The test split SHA-256 (`9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025`) is recorded in every `comparison.json` and matches across all 20 evaluations. Prepared splits are not committed: the active path fetches them from the pinned public dataset and verifies size, row count and SHA-256 before use. Raw collection snapshots are not published, so a raw `gather` of live issues is a new dataset, not reproduction. Details: [docs/reproduction.md](docs/reproduction.md).
 
 ### Fine-tuning
 
@@ -134,11 +135,12 @@ Single run per configuration on a 200-row holdout: deltas are descriptive, with 
 The CLI exposes `gather`, `prepare`, `baseline`, `train`, `evaluate` and `run`; the QLoRA track additionally uses the guarded sequential runner [`scripts/run_qlora_large.py`](scripts/run_qlora_large.py):
 
 ```bash
+specialist prepare configs/vscode-bug-feature.yaml   # CPU-safe: fetch + verify the pinned splits
 specialist run configs/qlora-large/03-qwen3.5-9b.yaml
-python scripts/run_qlora_large.py --dry-run   # validate pinned env, GPU, data hashes, disk, git state
+python scripts/run_qlora_large.py --dry-run          # fetch/verify data; validate pinned env, GPU, disk, git state
 ```
 
-A standalone clone cannot reproduce the published numbers: datasets and model weights are not committed, and exact reproduction requires the frozen data files matching the recorded SHA-256 hashes. Full instructions, including environment pins, resume handling and artifact cleanup, are in [docs/reproduction.md](docs/reproduction.md).
+Pinned configs skip raw `gather`, and calling `specialist gather` on them refuses; raw gather and raw preparation remain available only for legacy configs without a `dataset:` block, whose raw snapshots are not published. The pinned splits are public and verifiable from a standalone clone, but reproducing the published numbers still needs the pinned `.[ml]` environment and the configured base model revisions. Committed benchmark and run artifacts are unchanged and may retain old absolute source paths as provenance; runs created before the pinned dataset change require their recorded checkout and original local data, and current strict resume checks intentionally reject their old manifests and config digests. Full instructions, including environment pins, resume handling and artifact cleanup, are in [docs/reproduction.md](docs/reproduction.md).
 
 ## Evidence
 

@@ -22,14 +22,17 @@ Per model, in order:
   7. cleanup    -- GPU-idle checked, known-safe descendants only, recorded.
 
 Recovery: `--resume <run-dir>` continues a partial run, re-validates git
-commit/config digests/environment/frozen data/GPU identity before every model,
-and never reruns a successful phase (baseline included). `--retry-failed`
-(resume only) allows at most one retry of a phase whose failure matches the
-positive transient allowlist (HF/network 5xx/timeout/connection, AF_UNIX path,
-explicit external interruption); everything else is a hard stop. A train retry
-resumes only from a complete checkpoint (trainer_state + adapter + optimizer +
-scheduler + rng state), otherwise the partial train output is deleted and the
-run restarts the phase identically.
+commit/config digests/environment/pinned dataset/GPU identity before every
+model, and never reruns a successful phase (baseline included). The pinned
+dataset is fetched from the public HF repo for new/dry runs and verified
+(read-only, no repair) on resume; run manifests from before the pinned dataset
+change are not resumable (their recorded dataset identity is a local path).
+`--retry-failed` (resume only) allows at most one retry of a phase whose
+failure matches the positive transient allowlist (HF/network 5xx/timeout/
+connection, AF_UNIX path, explicit external interruption); everything else is
+a hard stop. A train retry resumes only from a complete checkpoint
+(trainer_state + adapter + optimizer + scheduler + rng state), otherwise the
+partial train output is deleted and the run restarts the phase identically.
 
 One-time vision continuation: `--init-vision-continuation <old-run>` creates a
 fresh run that imports only the accepted Qwen evidence (exact source run,
@@ -69,6 +72,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from specialist.cli import build_comparison, load_config, quantization_view  # noqa: E402
+from specialist import dataset as dataset_mod  # noqa: E402
 from specialist.model import sha256_file  # noqa: E402
 
 TRACK = "qlora-large"
@@ -85,21 +89,12 @@ PROTECTED_PATHS = (
 # Untracked paths tolerated during a run are computed per run (exact active run
 # directory); new runs and dry-run allow none.
 
-FROZEN_DATA_DIR = Path("/home/tilakoid/github-triage-data")
-FROZEN_SPLITS = {
-    "train": {
-        "sha256": "3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b",
-        "rows": 1593,
-    },
-    "val": {
-        "sha256": "7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348",
-        "rows": 200,
-    },
-    "test": {
-        "sha256": "9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025",
-        "rows": 200,
-    },
-}
+# Pinned public dataset (src/specialist/dataset.py): project-local, git-ignored
+# cache. New and dry runs fetch missing/invalid splits; resume is verify-only
+# and never repairs missing or changed data. Manifests record the immutable
+# repo/revision/hashes, never this cache path.
+DATASET_CACHE_DIR = PROJECT_ROOT / ".cache" / "datasets" / "vscode-bug-feature"
+FROZEN_SPLITS = dataset_mod.DATASET_SPLITS
 
 MIN_FREE_GIB = 80.0
 SHORT_TMP_ROOT = Path("/tmp/opencode/b")
@@ -811,7 +806,7 @@ def gpu_sharing_metadata() -> dict:
 # validation
 # --------------------------------------------------------------------------- #
 
-def validate_config(config: dict, spec: ModelSpec, data_dir: str | Path = FROZEN_DATA_DIR) -> list[str]:
+def validate_config(config: dict, spec: ModelSpec) -> list[str]:
     """Every track-critical field of source/snapshot configs, per fixed spec."""
     problems: list[str] = []
     model_cfg = config.get("model") or {}
@@ -878,42 +873,52 @@ def validate_config(config: dict, spec: ModelSpec, data_dir: str | Path = FROZEN
 
     if list(sources) != list(SOURCE_FILES):
         problems.append(f"{spec.slug} sources: expected {list(SOURCE_FILES)}, found {list(sources)}")
-    for label, filename in SOURCE_FILES.items():
+    for label in SOURCE_FILES:
         entry = sources.get(label) or {}
         expect(entry, "repo", SOURCE_REPO, f"{spec.slug} sources.{label}.repo")
         expect(entry, "github_label", label, f"{spec.slug} sources.{label}.github_label")
-        file_value = entry.get("file")
-        if not file_value:
-            problems.append(f"{spec.slug} sources.{label}.file: missing (frozen dataset required)")
-            continue
-        path = Path(str(file_value)).expanduser()
-        if path.name != filename or path.resolve().parent != Path(data_dir).resolve():
+        if entry.get("file"):
             problems.append(
-                f"{spec.slug} sources.{label}.file: expected {filename} under "
-                f"{Path(data_dir)}, found {path}"
+                f"{spec.slug} sources.{label}.file: active configs must not carry raw "
+                "file paths; the pinned dataset block is the active source"
             )
+
+    # Pinned dataset block: the exact public repo and immutable full revision.
+    if config.get("dataset") is None:
+        problems.append(f"{spec.slug} dataset: missing pinned dataset block")
+    else:
+        problems += [
+            f"{spec.slug} dataset {problem}"
+            for problem in dataset_mod.config_problems(config)
+        ]
     return problems
 
 
 def frozen_data_report(data_dir: str | Path, splits: dict | None = None) -> tuple[dict, list[str]]:
-    splits = FROZEN_SPLITS if splits is None else splits
-    report: dict = {}
-    problems: list[str] = []
-    for name, expected in splits.items():
-        path = Path(data_dir) / f"{name}.jsonl"
-        entry = {"path": str(path), "exists": path.is_file()}
-        if not entry["exists"]:
-            problems.append(f"missing frozen split: {path}")
-            report[name] = entry
-            continue
-        entry["sha256"] = sha256_file(path)
-        entry["rows"] = count_lines(path)
-        if entry["sha256"] != expected["sha256"]:
-            problems.append(f"{name} sha256 mismatch: {entry['sha256']} != {expected['sha256']}")
-        if entry["rows"] != expected["rows"]:
-            problems.append(f"{name} row count mismatch: {entry['rows']} != {expected['rows']}")
-        report[name] = entry
-    return report, problems
+    """Local verification report for the pinned splits (shared module)."""
+    return dataset_mod.verify_dataset(
+        data_dir, FROZEN_SPLITS if splits is None else splits
+    )
+
+
+def _manifest_data(report: dict) -> dict:
+    """Manifest dataset identity: immutable repo/revision/hashes, no local path.
+
+    `data.dataset` is the stable identity; `data.splits` keeps only the
+    portable evidence (size, rows, sha256) and never the cache directory.
+    """
+    return {
+        "source": f"hf:{dataset_mod.DATASET_REPO}@{dataset_mod.DATASET_REVISION}",
+        "dataset": dataset_mod.dataset_identity(),
+        "splits": {
+            name: {
+                "size": entry.get("size"),
+                "rows": entry.get("rows"),
+                "sha256": entry.get("sha256"),
+            }
+            for name, entry in report.items()
+        },
+    }
 
 
 def copy_frozen_into_workspace(
@@ -925,8 +930,8 @@ def copy_frozen_into_workspace(
     workspace.mkdir(parents=True, exist_ok=True)
     copied: dict = {}
     for name, expected in splits.items():
-        src = Path(data_dir) / f"{name}.jsonl"
-        dst = workspace / f"{name}.jsonl"
+        src = Path(data_dir) / dataset_mod.local_name(name)
+        dst = workspace / dataset_mod.local_name(name)
         if not src.is_file():
             raise RunnerError(f"frozen split missing: {src}")
         if not dst.is_file() or sha256_file(dst) != expected["sha256"]:
@@ -2582,7 +2587,7 @@ class Runner:
         *,
         project_root: str | Path = PROJECT_ROOT,
         root: str | Path = RUN_ROOT,
-        data_dir: str | Path = FROZEN_DATA_DIR,
+        data_dir: str | Path = DATASET_CACHE_DIR,
         short_tmp_root: str | Path = SHORT_TMP_ROOT,
         dry_run: bool = False,
         resume: str | Path | None = None,
@@ -2653,10 +2658,27 @@ class Runner:
         data_report, data_problems = frozen_data_report(self.data_dir)
         problems += data_problems
         if manifest is not None:
+            # The manifest must carry the exact pinned dataset identity
+            # (repo/revision/names/sizes/rows/hashes). Old manifests without it
+            # fail explicitly before any run-file mutation; a changed identity
+            # is never repaired.
+            recorded_dataset = (manifest.get("data") or {}).get("dataset")
+            if recorded_dataset is None:
+                problems.append(
+                    "run manifest has no pinned dataset identity; refusing old run manifests"
+                )
+            elif recorded_dataset != dataset_mod.dataset_identity():
+                problems.append(
+                    "run manifest dataset identity differs from the pinned dataset"
+                )
             recorded_splits = (manifest.get("data") or {}).get("splits") or {}
             for name, entry in data_report.items():
                 recorded = recorded_splits.get(name) or {}
-                if recorded.get("sha256") != entry.get("sha256") or recorded.get("rows") != entry.get("rows"):
+                if (
+                    recorded.get("size") != entry.get("size")
+                    or recorded.get("sha256") != entry.get("sha256")
+                    or recorded.get("rows") != entry.get("rows")
+                ):
                     problems.append(f"frozen {name} data differs from the run manifest")
 
         free_gib = probe_disk_free_gib(existing_ancestor(self.root))
@@ -2697,7 +2719,7 @@ class Runner:
             except yaml.YAMLError as exc:
                 problems.append(f"config {path} is not valid YAML: {exc}")
                 continue
-            problems += validate_config(config, spec, data_dir=self.data_dir)
+            problems += validate_config(config, spec)
             if manifest is not None:
                 recorded = (manifest.get("config_sha256") or {}).get(spec.slug)
                 actual = sha256_file(path)
@@ -2731,10 +2753,25 @@ class Runner:
             raise RunnerError("invariant check failed:\n  - " + "\n  - ".join(problems))
         return {"versions": versions, "gpu": gpu, "data": data_report, "free_gib": free_gib}
 
+    def _ensure_dataset(self, *, fetch: bool) -> dict:
+        """Shared pinned-dataset verify; new/dry runs may fetch, resume never."""
+        try:
+            return dataset_mod.ensure_dataset(
+                self.data_dir, splits=FROZEN_SPLITS, fetch=fetch
+            )
+        except dataset_mod.DatasetError as exc:
+            if fetch:
+                raise RunnerError(f"pinned dataset fetch failed: {exc}") from exc
+            raise RunnerError(
+                "pinned dataset verification failed (resume never repairs "
+                f"missing or changed data): {exc}"
+            ) from exc
+
     def _dry_run(self) -> int:
+        self._ensure_dataset(fetch=True)
         summary = self._invariant_check(manifest=None, require_clean_git=True)
         gpu = summary["gpu"]
-        self.out("DRY RUN OK  (no download, no GPU model load, no phase subprocess)")
+        self.out("DRY RUN OK  (dataset fetched/verified, no GPU model load, no phase subprocess)")
         self.out(f"  track root      : {self.root}")
         self.out(f"  run namespace   : {self.root}/<UTC-run-id>/")
         self.out(f"  python          : {self.python}")
@@ -2749,6 +2786,10 @@ class Runner:
                 f"kind={spec.kind} batch={spec.per_device_train_batch_size} "
                 f"ga={spec.gradient_accumulation_steps} collator={spec.vision_collator}"
             )
+        self.out(
+            f"  pinned dataset  : {dataset_mod.DATASET_REPO}@"
+            f"{dataset_mod.DATASET_REVISION}"
+        )
         self.out(
             "  frozen data     : "
             + ", ".join(
@@ -3474,6 +3515,7 @@ class Runner:
         subprocess runs, and no LATEST is written.
         """
         source_dir = self._vision_continuation_source()
+        self._ensure_dataset(fetch=True)
         summary = self._invariant_check(manifest=None, require_clean_git=True)
         self.gpu = summary["gpu"]
         qwen = spec_by_slug(VISION_CONTINUATION_MODEL)
@@ -3537,8 +3579,15 @@ class Runner:
         if recorded_gpu.get("visible_devices") != summary["gpu"]["visible_devices"]:
             problems.append("source visible device count differs from the current GPU")
         recorded_data = source_manifest.get("data") or {}
-        if recorded_data.get("source") != str(self.data_dir):
-            problems.append("source frozen data directory differs from the current data dir")
+        # Dataset identity is the immutable repo/revision/hashes, not a local
+        # path: a source manifest that records the pinned identity must match it,
+        # and the split digests below are the real byte-level check either way.
+        recorded_dataset = recorded_data.get("dataset") or {}
+        if recorded_dataset:
+            if recorded_dataset.get("repo") != dataset_mod.DATASET_REPO:
+                problems.append("source dataset repo differs from the pinned dataset")
+            if recorded_dataset.get("revision") != dataset_mod.DATASET_REVISION:
+                problems.append("source dataset revision differs from the pinned dataset")
         recorded_splits = recorded_data.get("splits") or {}
         for name, report in summary["data"].items():
             recorded = recorded_splits.get(name) or {}
@@ -3607,7 +3656,7 @@ class Runner:
             "config_snapshot_sha256": {
                 qwen.slug: (source_manifest.get("config_snapshot_sha256") or {}).get(qwen.slug)
             },
-            "data": {"source": str(self.data_dir), "splits": summary["data"]},
+            "data": _manifest_data(summary["data"]),
             "vram": {
                 "go_gib": VRAM_GO_GIB,
                 "repeat_max_gib": VRAM_REPEAT_MAX_GIB,
@@ -3643,6 +3692,7 @@ class Runner:
         return 0
 
     def _new_run(self) -> int:
+        self._ensure_dataset(fetch=True)
         summary = self._invariant_check(manifest=None, require_clean_git=True)
         self.gpu = summary["gpu"]
         self.root.mkdir(parents=True, exist_ok=True)
@@ -3663,7 +3713,7 @@ class Runner:
             "gpu": summary["gpu"],
             "config_sha256": self._config_hashes(),
             "config_snapshot_sha256": {},
-            "data": {"source": str(self.data_dir), "splits": summary["data"]},
+            "data": _manifest_data(summary["data"]),
             "vram": {
                 "go_gib": VRAM_GO_GIB,
                 "repeat_max_gib": VRAM_REPEAT_MAX_GIB,
@@ -3775,6 +3825,8 @@ class Runner:
                 )
             self.compatibility = self._runtime_compatibility(existing[0])
 
+        # Verify-only: a resume never fetches or repairs missing/changed data.
+        self._ensure_dataset(fetch=False)
         summary = self._invariant_check(manifest=manifest, require_clean_git=True)
         self.gpu = summary["gpu"]
 
@@ -4000,11 +4052,11 @@ class Runner:
                 + yaml.safe_dump(config, sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
             )
-        config_problems = validate_config(config, spec, data_dir=self.data_dir)
-        if config_problems:
+        problems = validate_config(config, spec)
+        if problems:
             raise RunnerError(
                 f"{spec.slug}: snapshot config is not the fixed track config:\n  - "
-                + "\n  - ".join(config_problems)
+                + "\n  - ".join(problems)
             )
         self._snapshot_digest_check(spec, manifest, config_snapshot)
         run_info["config_source"] = str(source_config)
@@ -4354,6 +4406,20 @@ class Runner:
             )
         selection_path = pre_dir / "selection.json"
         data_dir = attempt_dir / "data"
+        # Tiny-run phases consume 8/2/1 selected rows, not the full pinned
+        # splits, so their derived config drops the dataset block; the runner
+        # itself verifies the pinned cache before any model work.
+        pre_dir.mkdir(parents=True, exist_ok=True)
+        preflight_config = pre_dir / f"config-a{attempt}.yaml"
+        derived = load_config(context["config_snapshot"])
+        derived.pop("dataset", None)
+        preflight_config.write_text(
+            f"# Preflight tiny-run config for attempt {attempt}: derived from the pinned "
+            "snapshot with the dataset block removed for the selected-row workspace.\n"
+            + yaml.safe_dump(derived, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+        context["preflight_config"] = preflight_config
 
         log_path = context["log_dir"] / f"selection-a{attempt}.log"
         code = run_selection_subprocess(
@@ -4464,6 +4530,7 @@ class Runner:
             self._run_subprocess(
                 context, "preflight", phase_arg, ws, extra,
                 f"preflight-{label}-{name}", attempt,
+                config_path=context["preflight_config"],
             )
         return preflight_run_problems(context["spec"], ws)
 

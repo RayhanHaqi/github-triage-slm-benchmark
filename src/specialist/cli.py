@@ -12,7 +12,9 @@ Without --run-dir, phases use `paths.data_dir` as workspace. `run` creates a
 unique UTC run directory under `paths.runs_dir` and executes
 gather -> prepare -> baseline -> train -> evaluate(adapter) -> comparison as
 subprocess CLI phases (fresh process per model load: Unsloth/transformers import
-order stays clean and VRAM is released between phases).
+order stays clean and VRAM is released between phases). Configs with a pinned
+`dataset:` block skip gather; prepare fetches and verifies the exact splits and
+baseline/train/evaluate fail closed when the workspace splits do not match.
 """
 
 from __future__ import annotations
@@ -26,6 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
+
+from . import dataset as dataset_mod
 
 
 def _project_root(config_path: str | Path) -> Path:
@@ -265,19 +269,33 @@ def cmd_prepare(config: dict, run_dir: str | None) -> None:
 def cmd_baseline(config: dict, run_dir: str | None) -> None:
     from .evaluate import evaluate
 
-    evaluate(config, phase_workspace(config, run_dir), "base")
+    workspace = phase_workspace(config, run_dir)
+    dataset_mod.require_configured_dataset(config, workspace)
+    evaluate(config, workspace, "base")
 
 
 def cmd_train(config: dict, run_dir: str | None) -> None:
     from .train import train
 
-    train(config, phase_workspace(config, run_dir))
+    workspace = phase_workspace(config, run_dir)
+    dataset_mod.require_configured_dataset(config, workspace)
+    train(config, workspace)
 
 
 def cmd_evaluate(config: dict, run_dir: str | None, checkpoint: str) -> None:
     from .evaluate import evaluate
 
-    evaluate(config, phase_workspace(config, run_dir), checkpoint)
+    workspace = phase_workspace(config, run_dir)
+    dataset_mod.require_configured_dataset(config, workspace)
+    evaluate(config, workspace, checkpoint)
+
+
+def phases_for_run(config: dict) -> tuple[str, ...]:
+    """Phases for `specialist run`; pinned dataset configs skip gather."""
+    phases = ["gather", "prepare", "baseline", "train"]
+    if dataset_mod.dataset_config(config) is not None:
+        phases.remove("gather")
+    return tuple(phases)
 
 
 def cmd_run(config_path: str | Path, run_dir: str | None, config: dict) -> None:
@@ -296,7 +314,7 @@ def cmd_run(config_path: str | Path, run_dir: str | None, config: dict) -> None:
     )
     print(f"Run directory: {run_dir_path}")
 
-    for phase in ("gather", "prepare", "baseline", "train"):
+    for phase in phases_for_run(config):
         run_phase(phase, snapshot, run_dir_path)
 
     run_phase(
@@ -346,7 +364,11 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--run-dir", default=None, help=run_dir_help)
 
     add_phase("gather", "copy/parse configured raw sources or fetch them with `gh issue list`")
-    add_phase("prepare", "clean raw issues and write temporal train/val/test splits")
+    add_phase(
+        "prepare",
+        "pinned dataset configs fetch and verify the exact prepared splits; legacy "
+        "configs clean raw issues and write temporal train/val/test splits",
+    )
     add_phase("baseline", "evaluate the base model on the test split")
     add_phase("train", "LoRA SFT with Unsloth; writes adapter/, trainer/, train_metrics.json")
 
