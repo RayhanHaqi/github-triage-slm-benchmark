@@ -1,102 +1,87 @@
-# GitHub Issue Triage — SLM Fine-Tuning Benchmark
+# GitHub Issue Triage: SLM Fine-Tuning Benchmark
 
-Case study: fine-tune several small language models (SLMs) on one narrow GitHub triage task, then compare every fine-tuned adapter against its own base checkpoint on the same frozen test split.
+Ten small language models are fine-tuned for one narrow task: classify a real `microsoft/vscode` issue as `bug` or `feature-request`. Each tuned model is compared against its own base checkpoint on the same frozen 200-row test set.
 
-**Research questions**
-
-1. Does fine-tuning improve over the base checkpoint, per model? (base vs fine-tuned, same frozen test split, same evaluator)
-2. How do the measured gains relate to nominal parameter count and measured resources (training wall time, peak VRAM)?
+[Results](#results) · [Quickstart](#quickstart) · [How it works](#how-it-works) · [Methodology](#methodology) · [Reproduction](#reproduction)
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square)
 ![Configurations](https://img.shields.io/badge/configurations-10%20(2%20tracks)-6e7781?style=flat-square)
+![Tracks](https://img.shields.io/badge/tracks-BF16%20LoRA%20%2B%20QLoRA%20NF4-6e7781?style=flat-square)
 ![Hardware](https://img.shields.io/badge/GPU-1%C3%97%20RTX%205060%20Ti%2015.456%20GiB-6e7781?style=flat-square)
 
-> [!WARNING]
-> **Two tracks, no unified ranking.** The BF16 LoRA and QLoRA NF4 runs differ in precision, checkpoint-selection policy and provenance. Cross-model tradeoffs may be read descriptively, but this is not a controlled cross-track ranking, and no causal model-size or precision effect is claimed. Matched comparisons hold only base vs fine-tuned **within one configuration**.
+## TL;DR
 
-**Scope.** Two-class classification of a `microsoft/vscode` issue as `bug` or `feature-request` — not a general triage system (no severity, assignment, multi-label routing or needs-info handling) and not a generic framework. All runs are text-only, even for vision-capable checkpoints; no images are used. Internal names are intentionally unchanged: the Python package is `slm-specialist` and the CLI is `specialist`; only the repository identity moved to `github-triage-slm-benchmark`.
-
-## At a glance
-
-| Snapshot | Value |
-|---|---|
-| Configurations | 10 completed (6 BF16 LoRA + 4 QLoRA NF4) |
-| Strict accuracy improved | 9 of 10 configurations (semantic accuracy: 10 of 10) |
-| Best strict delta | +31.0 pp — Qwen3-1.7B (0.580 → 0.890) |
-| Largest strict regression | -3.5 pp — Qwen3.5-4B (0.885 → 0.850; semantic +1.0 pp) |
-| Frozen test split | 200 rows, temporal holdout: 100 `bug` / 100 `feature-request` |
-| Hardware | 1× NVIDIA GeForce RTX 5060 Ti, 15.456 GiB torch-visible, CUDA 12.8 |
-| Peak reserved VRAM (fine-tuned evaluation) | ≤ 9.36 GiB BF16 LoRA · ≤ 9.94 GiB QLoRA acceptance |
-
-Values are read from the committed `results.csv` files ([BF16](benchmarks/20260915T112519Z/results.csv), [QLoRA](benchmarks/qlora-large/20260916T185922Z/results.csv)); run IDs and links are in [Evidence](#evidence).
-
-## Base → fine-tuned strict accuracy
+- 10 configurations over two tracks: 6 BF16 LoRA (0.8B–4B nominal) and 4 QLoRA NF4 (8B–14B nominal).
+- 9 of 10 configurations improved strict accuracy; 10 of 10 improved semantic accuracy.
+- Largest gain: Qwen3-1.7B, 58.0% → 89.0% strict (+31.0 pp).
+- Only strict regression: Qwen3.5-4B, 88.5% → 85.0% (-3.5 pp), semantic +1.0 pp.
+- Every run trained and evaluated on one RTX 5060 Ti (15.456 GiB torch-visible).
 
 ![Dumbbell chart of strict accuracy for the base checkpoint versus the fine-tuned adapter across all ten configurations, split into BF16 LoRA and QLoRA NF4 tracks](assets/strict-accuracy-dumbbell.svg)
 
-The BF16 LoRA and QLoRA NF4 tracks are separate runs; cross-track comparisons are descriptive, not controlled.
+BF16 LoRA and QLoRA NF4 are separate tracks, not a controlled cross-track ranking.
 
-## Key findings
+## Quickstart
 
-- **Semantic behavior.** Strict accuracy improved in 9 of 10 configurations; semantic accuracy improved in 10 of 10. The single strict regression still parsed as one class: fine-tuned Qwen3.5-4B produced classifiable output more often than base (semantic +1.0 pp) but less often matched an exact bare label.
-- **Largest gain.** Qwen3-1.7B: 0.580 → 0.890 strict (+31.0 pp; semantic likewise +31.0 pp) — the largest delta in the study, and it started from the lowest base strict accuracy (0.580).
-- **Notable regression.** Qwen3.5-4B: 0.885 → 0.850 strict (-3.5 pp) — the strongest base strict score in the BF16 track; semantic +1.0 pp.
-- **Not monotonic in nominal size.** Gains do not order by nominal parameter count: the largest deltas come from 1.2B–3B configurations (+26.5 to +31.0 pp strict), while the smallest include a 0.8B configuration (+2.5 pp) and every 8B–14B configuration (+2.0 to +6.0 pp). No "bigger is better" claim is made.
-- **Resources.** All 10 configurations trained and evaluated on one RTX 5060 Ti; the longest single training phase was 6577 s (Ministral-3-14B). Fine-tuned evaluation peak reserved VRAM was ≤ 9.36 GiB in the BF16 track and ≤ 9.94 GiB across QLoRA acceptance runs. The remaining three QLoRA configurations ran under the documented shared-GPU (RustDesk) policy; the BF16 track and the imported Qwen3-8B evidence had no GPU sharing, so resource numbers are descriptive within each track, not a controlled efficiency ranking.
-- **Single-run frozen holdout.** Every delta is a single-run descriptive difference on a 200-row holdout; there are no confidence intervals or significance tests, and no general-quality claim.
+```bash
+git clone https://github.com/RayhanHaqi/github-triage-slm-benchmark.git
+cd github-triage-slm-benchmark
+python -m pip install -e .
+specialist --help
+python -m unittest discover -s tests -v
+```
 
-## Results by track (exact values)
+The base install has no GPU dependencies and covers the `gather` and `prepare` phases, `--help`, and the CPU-only tests. Reproducing the published numbers needs the frozen dataset and the pinned `.[ml]` environment: [docs/reproduction.md](docs/reproduction.md).
 
-Strict accuracy on the frozen 200-row test split; single runs, deltas are adapter minus base in percentage points. Metric definitions are in [Methodology and dataset](#methodology-and-dataset).
+## Why this exists
 
-### BF16 LoRA — run `20260915T112519Z`
+General-purpose models already read an issue title and body well enough to make a reasonable call. A classifier that only has to route `bug` versus `feature-request` does not obviously need a large checkpoint, so the useful measurement is how much one task-specific tuning pass changes behavior when the evaluation is held fixed.
 
-6 configurations, roughly 0.8B–4B nominal; full BF16 base weights + LoRA, adapter = final epoch (3); `LATEST` pointer → `20260915T112519Z`.
+This benchmark makes that measurement in one narrow setting. Every checkpoint is scored before and after LoRA or QLoRA tuning with the same prompt, decoding settings and test split, so the numbers describe base versus tuned for the same model, not one model against another.
 
-| Configuration | Strict base → FT | Δ strict | Δ semantic | FT peak reserved VRAM (GiB) | FT output speed (tok/s) |
-|---|---|---|---|---|---|
-| Qwen3.5-0.8B | 0.780 → 0.805 | +2.5 | +12.5 | 1.96 | 27.12 |
-| LFM2.5-1.2B-Instruct | 0.625 → 0.900 | +27.5 | +25.5 | 2.59 | 52.75 |
-| Qwen3-1.7B | 0.580 → 0.890 | +31.0 | +31.0 | 3.94 | 26.96 |
-| Qwen3.5-2B | 0.840 → 0.890 | +5.0 | +5.0 | 4.54 | 22.99 |
-| Ministral-3-3B-Instruct | 0.610 → 0.875 | +26.5 | +26.5 | 7.95 | 18.88 |
-| Qwen3.5-4B | 0.885 → 0.850 | -3.5 | +1.0 | 9.36 | 14.85 |
+## Results
+
+Strict accuracy on the frozen 200-row test split; deltas are adapter minus base in percentage points. Exact metric definitions are in [Evaluation](#evaluation).
+
+### BF16 LoRA
+
+Run `20260915T112519Z`: full BF16 base weights, adapter from the final epoch (3).
+
+| Model | Base strict | Fine-tuned strict | Gain |
+|---|---|---|---|
+| Qwen3.5-0.8B | 78.0% | 80.5% | +2.5 |
+| LFM2.5-1.2B-Instruct | 62.5% | 90.0% | +27.5 |
+| Qwen3-1.7B | 58.0% | 89.0% | +31.0 |
+| Qwen3.5-2B | 84.0% | 89.0% | +5.0 |
+| Ministral-3-3B-Instruct-2512-BF16 | 61.0% | 87.5% | +26.5 |
+| Qwen3.5-4B | 88.5% | 85.0% | -3.5 |
 
 <details>
-<summary>BF16 vision-freeze behavior is <strong>not established</strong> (historical run)</summary>
+<summary>BF16 resource and provenance details</summary>
 
-The BF16 configs record `finetune_vision_layers: false` but also Unsloth `all-linear` targeting, and no BF16 artifact lists adapted parameter names — Unsloth's `all-linear` handling may have silently overridden the recorded freeze flags. Frozen-vision behavior for this historical track is therefore unknown and is not validated by, or rewritten from, the QLoRA run's evidence. Only the QLoRA track records trainable-parameter evidence (zero vision-like tensors; see its run report).
+Semantic deltas in table order: +12.5, +25.5, +31.0, +5.0, +26.5, +1.0 pp. Fine-tuned evaluation peak reserved VRAM: 1.96–9.36 GiB; output throughput: 14.85–52.75 tok/s. Training metrics for Qwen3.5-2B cover the resumed segment (steps 400–600) only; Qwen3.5-4B covers the final successful attempt, with two excluded epoch-evaluation OOM attempts. Frozen-vision behavior is not established for this track: configs record `finetune_vision_layers: false` but also `all-linear` targeting, and no artifact lists adapted parameter names. Full per-model table: [run report](benchmarks/20260915T112519Z/report.md).
 
 </details>
 
-### QLoRA NF4 — run `20260916T185922Z`
+### QLoRA NF4
 
-4 configurations, roughly 8B–14B nominal; 4-bit NF4 base (double-quantized, bf16 compute, no offload) + LoRA, best validation-loss checkpoint (epoch 2) restored before fine-tuned evaluation; `LATEST` pointer → `20260916T185922Z`.
+Run `20260916T185922Z`: 4-bit NF4 base weights (double-quantized, bf16 compute, no offload), best validation-loss checkpoint (epoch 2).
 
-| Configuration | Strict base → FT | Δ strict | Δ semantic | FT peak reserved VRAM (GiB) | FT output speed (tok/s) |
-|---|---|---|---|---|---|
-| Qwen3-8B (imported†) | 0.870 → 0.890 | +2.0 | +2.0 | 6.69 | 8.18 |
-| Ministral-3-8B-Instruct | 0.815 → 0.875 | +6.0 | +7.0 | 6.93 | 8.20 |
-| Qwen3.5-9B | 0.860 → 0.890 | +3.0 | +3.0 | 8.18 | 9.45 |
-| Ministral-3-14B-Instruct | 0.855 → 0.885 | +3.0 | +3.0 | 9.90 | 5.47 |
+| Model | Base strict | Fine-tuned strict | Gain |
+|---|---|---|---|
+| Qwen3-8B | 87.0% | 89.0% | +2.0 |
+| Ministral-3-8B-Instruct-2512-BF16 | 81.5% | 87.5% | +6.0 |
+| Qwen3.5-9B | 86.0% | 89.0% | +3.0 |
+| Ministral-3-14B-Instruct-2512-BF16 | 85.5% | 88.5% | +3.0 |
 
 <details>
-<summary>† Imported Qwen3-8B provenance (not rerun)</summary>
+<summary>QLoRA resource and provenance details</summary>
 
-Qwen3-8B was **imported byte-identical** from earlier run `20260916T120019Z` (original execution commit `385bbb957733e37d31627ff3f67e9931c95e6946`; evidence pinned at `429d5ccd885ec9188e76ae1d2685e210e5b34e7f`). Its recorded phases ran 2026-09-16T12:00:19Z–13:01:22Z and are excluded from run `20260916T185922Z`'s interval. The committed source and imported files match byte-for-byte; however, two prediction-CSV SHA-256 values stored in the continuation manifest are stale and do not match either copy (the other 10 recorded digests match). Models 2–4 executed in `20260916T185922Z` under manifest commit `b0f91ad46f8491bbe6bba9a453c761cb92efb281`. The imported evidence was measured **without** GPU sharing.
+Semantic deltas in table order: +2.0, +7.0, +3.0, +3.0 pp. Fine-tuned evaluation peak reserved VRAM: 6.69–9.90 GiB; output throughput: 5.47–9.45 tok/s. Qwen3-8B was imported byte-identical from earlier run `20260916T120019Z` and measured without GPU sharing. Models 2–4 ran under the one-time approved RustDesk shared-GPU policy (512 MiB aggregate allowance, phase-boundary samples, every accepted peak more than 1 GiB below its retained budget). Full provenance: [run report](benchmarks/qlora-large/20260916T185922Z/report.md).
 
 </details>
 
-<details>
-<summary>Shared-GPU (RustDesk) conditions for QLoRA models 2–4</summary>
-
-One-time user-approved policy `rustdesk_shared_gpu_v1`: only the exact `/usr/share/rustdesk/rustdesk` executable was allowed GPU memory, 512 MiB aggregate allowance, observed via **phase-boundary** samples (13 retained per model), not continuous monitoring — no instantaneous safety guarantee is claimed. Retained minimum effective capacity: 12.243 / 12.445 / 12.473 GiB; the only nonzero observed RustDesk usage was 257 MiB on Ministral-3-8B (0 MiB elsewhere). Every accepted reserved peak stayed more than 1 GiB below its retained budget. Qwen3-8B ran without GPU sharing, so its timing/VRAM is not directly comparable to models 2–4.
-
-</details>
-
-**Metric notes.** *Strict accuracy*: the stripped, lowercased output must exactly equal one class name. *Semantic accuracy*: exactly one class parsed from the raw output by a forgiving word-boundary regex; both/neither counts as invalid and wrong. *FT peak reserved VRAM*: adapter-evaluation process peak reserved by the PyTorch allocator (GiB, 1024³; counters reset after model load) — a process-level measurement, not whole-GPU usage. *FT output speed*: stored generated tokens divided by total `model.generate` elapsed, so it includes prefill and is not pure decode throughput. *Strict/semantic deltas*: fine-tuned minus base.
-
-## Pipeline
+## How it works
 
 ```mermaid
 flowchart LR
@@ -109,88 +94,73 @@ flowchart LR
     F --> G["committed evidence<br/>manifest · results.csv · predictions"]
 ```
 
-The `specialist` CLI runs each phase in a fresh process; the QLoRA track uses the guarded sequential runner [`scripts/run_qlora_large.py`](scripts/run_qlora_large.py). Commands: [docs/reproduction.md](docs/reproduction.md).
+Every configuration is evaluated on the same frozen 200-row test split, pinned by SHA-256 and re-checked by the comparison step (`test_sha256.match`). Each adapter is scored against its own base checkpoint with identical prompts and greedy decoding. Run metadata, comparisons and per-issue predictions are committed; base weights, adapters and datasets are not.
 
-## Methodology and dataset
+## Methodology
 
-**Dataset (frozen).** Source: `microsoft/vscode` issues, classes `bug` and `feature-request`. Split: temporal per-class by `created_at`, seed 42, 80/10/10 → **1593 train / 200 val / 200 test**; the test set is balanced 100 `bug` + 100 `feature-request`. Split SHA-256 pins: train `3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b`, val `7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348`, test `9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025`. `comparison.json` records `test_sha256.match = true` for every model, so all 20 evaluations share one test set. Raw and prepared data files are intentionally not committed.
+### Dataset
 
-**Decoding (common).** One system prompt — *"Classify the GitHub issue into exactly one category: bug or feature-request. Return only the category name."* — with greedy decoding (`do_sample: false`), `max_new_tokens: 12`, issue text truncated at `max_user_tokens: 1800`, `max_seq_length: 2048`, `pad_eos: true`; Qwen-family runs disable thinking (`enable_thinking: false`). Single pass over the 200 issues per evaluation.
+`microsoft/vscode` issues labeled `bug` or `feature-request`. Temporal per-class split by `created_at`, seed 42, 80/10/10 → **1593 train / 200 val / 200 test**; the test set is balanced 100 `bug` / 100 `feature-request`. The test split SHA-256 (`9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025`) is recorded in every `comparison.json` and matches across all 20 evaluations. Raw and prepared data are not committed; reproduction needs the frozen local copies described in [docs/reproduction.md](docs/reproduction.md).
 
-**Training recipe (common).** LoRA r=16 / alpha=32 / dropout=0 / bias none, 3 epochs, lr 2e-4 cosine, warmup 0.05, weight decay 0.01, `adamw_8bit`, Unsloth gradient checkpointing, seed 42, `max_seq_length` 2048, effective batch 8. BF16 track: full BF16 base, no quantization, per-device 2 × accumulation 4. QLoRA track: official BF16 checkpoint quantized on the fly to NF4 (double-quantized, bf16 compute, no offload), per-device 2 × accumulation 4 except Ministral-3-14B at 1 × 8. "0.8B" … "14B" are nominal sizes from official model names, not exact parameter counts.
+### Fine-tuning
 
-**Environment (pinned).** Python 3.11.16; PyTorch 2.11.0+cu128; transformers 5.5.0; peft 0.20.0; datasets 4.3.0; trl 0.24.0; unsloth 2026.9.4; unsloth_zoo 2026.9.3; bitsandbytes 0.50.2; accelerate 1.15.0; CUDA 12.8; one NVIDIA GeForce RTX 5060 Ti (torch-visible total 15.456 GiB, single GPU). The same metrics JSONs also record the exact checkpoint revisions; pins are tabulated in [docs/github-triage-benchmark.md](docs/github-triage-benchmark.md).
+LoRA r=16, alpha=32, dropout 0, 3 epochs, lr 2e-4 cosine, warmup 0.05, weight decay 0.01, `adamw_8bit`, effective batch 8, seed 42, `max_seq_length` 2048. The BF16 track trains a full BF16 base with no quantization. The QLoRA track quantizes the official BF16 checkpoint on the fly to NF4 (double-quantized, bf16 compute, no offload) and restores the best validation-loss checkpoint (epoch 2) before evaluation. Nominal sizes such as "0.8B" and "14B" come from official model names, not exact parameter counts.
 
-**Evaluator checks.** Both metric JSONs carry the `test_sha256` computed from the exact split bytes; `comparison.json` fails loudly if baseline and fine-tuned hashes differ, if base model identity/revision differs, or if effective quantization settings differ. Failed/interrupted attempts are excluded from the reported successful-run metrics, and the training-metric scope is recorded per row.
+### Evaluation
+
+One system prompt (`Classify the GitHub issue into exactly one category: bug or feature-request. Return only the category name.`), greedy decoding, `max_new_tokens` 12, issue text capped at 1800 tokens. Strict accuracy requires the stripped, lowercased output to equal one class name exactly; semantic accuracy requires exactly one class parsed by a forgiving word-boundary regex. Deltas are fine-tuned minus base.
+
+### Hardware
+
+One NVIDIA GeForce RTX 5060 Ti (15.456 GiB torch-visible), CUDA 12.8. Pinned environment: Python 3.11.16, PyTorch 2.11.0+cu128, transformers 5.5.0, peft 0.20.0, datasets 4.3.0, trl 0.24.0, unsloth 2026.9.4, bitsandbytes 0.50.2. Fine-tuned evaluation peak reserved VRAM stayed below 10 GiB in both tracks, so all ten configurations fit on this one GPU. Exact checkpoint revisions are tabulated in [docs/github-triage-benchmark.md](docs/github-triage-benchmark.md).
+
+### Limitations
+
+Single run per configuration on a 200-row holdout: deltas are descriptive, with no confidence intervals or significance tests, and BF16 LoRA versus QLoRA NF4 is not a controlled cross-track ranking. All runs are text-only even for vision-capable checkpoints, and the task is two-class routing only, not severity, assignment or multi-label triage.
+
+<details>
+<summary>Run provenance, failures and resume caveats</summary>
+
+- QLoRA models 2–4 executed under manifest commit `b0f91ad46f8491bbe6bba9a453c761cb92efb281`. Qwen3-8B was imported byte-identical from earlier run `20260916T120019Z` (original execution commit `385bbb957733e37d31627ff3f67e9931c95e6946`, evidence pinned at `429d5ccd885ec9188e76ae1d2685e210e5b34e7f`); two prediction-CSV digests in the continuation manifest are stale for that import, while the other ten match.
+- Models 2–4 shared the GPU under one-time policy `rustdesk_shared_gpu_v1`: only the exact `/usr/share/rustdesk/rustdesk` binary was allowed memory, 512 MiB aggregate, sampled at phase boundaries rather than monitored continuously.
+- The QLoRA track records zero vision-like trainable tensors.
+- Failed run `20260916T093135Z` is not part of the reported metrics. QLoRA run directories were cleaned after completion, so `--resume` applies only to partial in-progress runs.
+- Full details: [BF16 run report](benchmarks/20260915T112519Z/report.md), [QLoRA run report](benchmarks/qlora-large/20260916T185922Z/report.md), [case analysis](docs/github-triage-benchmark.md), [reproduction notes](docs/reproduction.md).
+
+</details>
 
 ## Reproduction
 
+The CLI exposes `gather`, `prepare`, `baseline`, `train`, `evaluate` and `run`; the QLoRA track additionally uses the guarded sequential runner [`scripts/run_qlora_large.py`](scripts/run_qlora_large.py):
+
 ```bash
-git clone https://github.com/RayhanHaqi/github-triage-slm-benchmark.git
-cd github-triage-slm-benchmark
-python -m pip install -e .                 # CLI + PyYAML only; gather/prepare/--help work with this
-specialist --help
-python -m unittest discover -s tests -v    # no GPU, no network
+specialist run configs/qlora-large/03-qwen3.5-9b.yaml
+python scripts/run_qlora_large.py --dry-run   # validate pinned env, GPU, data hashes, disk, git state
 ```
 
-The ML phases (baseline/train/evaluate) need the pinned `.[ml]` extra and the frozen experiment environment; see [docs/reproduction.md](docs/reproduction.md).
-
-> [!IMPORTANT]
-> **A standalone clone cannot reproduce the frozen results.** Datasets and model weights are not committed. Exact reproduction requires the sibling `/home/tilakoid/github-triage-data` files matching the recorded SHA-256 hashes; the QLoRA runner pins that machine-specific path. A live `gh issue list` gather produces a **new** dataset, not the frozen one.
-
-<details>
-<summary>Exact reproduction constraints and run-resume caveats</summary>
-
-- The QLoRA runner's `--dry-run` is not CPU-only: it validates the pinned environment versions, torch-visible GPU identity, ≥ 80 GiB free disk, frozen data hashes and a clean git tree/HEAD, without downloading models or running a phase. A new run additionally requires no tracked changes and no untracked paths.
-- Resuming a finished committed run is not a quickstart: `benchmarks/qlora-large/20260916T185922Z` was cleaned up after completion (adapters, trainer checkpoints and scratch caches deleted; `cleanup.json` records the bytes). `--resume` is for a partial, in-progress run on the same machine.
-- BF16 Qwen3.5-2B training metrics cover the resumed segment (steps 400–600) only; BF16 Qwen3.5-4B values cover the final successful attempt (two epoch-evaluation OOM attempts excluded); QLoRA Qwen3-8B training rows are the imported source-run metrics.
-- The full instruction set, including the guarded QLoRA runner operations, is in [docs/reproduction.md](docs/reproduction.md).
-
-</details>
+A standalone clone cannot reproduce the published numbers: datasets and model weights are not committed, and exact reproduction requires the frozen data files matching the recorded SHA-256 hashes. Full instructions, including environment pins, resume handling and artifact cleanup, are in [docs/reproduction.md](docs/reproduction.md).
 
 ## Evidence
 
-- Main case analysis: [docs/github-triage-benchmark.md](docs/github-triage-benchmark.md) (per-model analysis; separate document).
-- BF16 track run `20260915T112519Z`: [report](benchmarks/20260915T112519Z/report.md) | [results.csv](benchmarks/20260915T112519Z/results.csv) | [manifest.json](benchmarks/20260915T112519Z/manifest.json)
-- QLoRA track run `20260916T185922Z`: [report](benchmarks/qlora-large/20260916T185922Z/report.md) | [results.csv](benchmarks/qlora-large/20260916T185922Z/results.csv) | [manifest.json](benchmarks/qlora-large/20260916T185922Z/manifest.json)
-- Earlier committed QLoRA attempts: failed run [`20260916T093135Z`](benchmarks/qlora-large/20260916T093135Z/) and partial source run [`20260916T120019Z`](benchmarks/qlora-large/20260916T120019Z/) used for the imported Qwen3-8B evidence.
-- Reference single-config run: [runs/20260915T093353Z/](runs/20260915T093353Z/) (original reference metadata, metrics, predictions).
-- Historical BF16 path `benchmarks/20260915T100825Z` is an uncommitted aborted attempt and is not part of the benchmark evidence.
+- BF16 LoRA run `20260915T112519Z`: [report](benchmarks/20260915T112519Z/report.md) | [results.csv](benchmarks/20260915T112519Z/results.csv) | [manifest.json](benchmarks/20260915T112519Z/manifest.json)
+- QLoRA NF4 run `20260916T185922Z`: [report](benchmarks/qlora-large/20260916T185922Z/report.md) | [results.csv](benchmarks/qlora-large/20260916T185922Z/results.csv) | [manifest.json](benchmarks/qlora-large/20260916T185922Z/manifest.json)
+- Per-model analysis and representative output cases: [docs/github-triage-benchmark.md](docs/github-triage-benchmark.md)
+- Reproduction, operations and artifact policy: [docs/reproduction.md](docs/reproduction.md)
 
-Per-model metrics, comparisons, prediction CSVs and run info live under `models/` in each track directory (`benchmarks/20260915T112519Z/models/<slug>/`, `benchmarks/qlora-large/20260916T185922Z/models/<slug>/workspace/`).
+Per-model metrics, `comparison.json` and prediction CSVs live in `models/<slug>/` inside each track directory. Committed: run metadata, metrics, predictions, manifests, reports, `results.csv` and the README chart. Not committed: datasets, base weights, adapters, trainer checkpoints and logs.
 
-Chart: [`assets/strict-accuracy-dumbbell.svg`](assets/strict-accuracy-dumbbell.svg), regenerated from the committed CSVs by [`scripts/generate_readme_charts.py`](scripts/generate_readme_charts.py) (stdlib only; `--check` verifies the committed SVG is byte-identical to a fresh render).
-
-## Artifact policy (git)
-
-Committed: source, configs, tests, run metadata (`config.yaml`, `dataset_stats.json`, `run_info.json`, `*_metrics.json`, `comparison.json`), prediction CSVs, benchmark `manifest.json` / `report.md` / `results.csv`, and the README SVG.
-
-Not committed: dataset copies, model weights and adapters, trainer checkpoints, caches, and process logs/transcripts.
-
-<details>
-<summary>Artifact retention details</summary>
-
-Retained manifests, metrics and predictions are committed; diagnostic logs remain local and ignored. Adapters, trainer checkpoints, copied split files and scratch caches were deleted at cleanup per policy (per-model `cleanup.json` records targets and bytes), and `workspace/unsloth_compiled_cache/` is retained for the three QLoRA vision models as produced. Only failed bulk-run cache and model weights were deleted locally with user approval — no blanket removal of retained artifacts. Full policy: [docs/reproduction.md](docs/reproduction.md).
-
-</details>
-
-## Repository map
+## Repository structure
 
 ```
-configs/                     BF16 reference config + configs/qlora-large/*.yaml (4 fixed models)
-src/specialist/              gather, prepare, model loading, train, evaluate, CLI, comparison
-scripts/run_qlora_large.py   guarded sequential runner for the 4-model QLoRA track
-scripts/generate_readme_charts.py  README SVG generator (stdlib only, reads committed CSVs)
-benchmarks/                  committed completed, partial and failed run evidence by track
-runs/                        reference run directory (metadata/metrics/predictions committed)
-assets/                      README chart (regenerated from committed results.csv)
-tests/                       cheap regression tests (no GPU, no network)
+assets/                      README chart
+benchmarks/                  committed run evidence (BF16 LoRA and QLoRA NF4 tracks)
+configs/                     run configurations for both tracks
 docs/                        case analysis and reproduction/operations notes
+scripts/                     QLoRA sequential runner and README chart generator
+src/specialist/              gather, prepare, train, evaluate, CLI, comparison
+tests/                       CPU-only regression tests
 ```
 
-## Tests
+## Related benchmark
 
-```bash
-python -m unittest discover -s tests -v            # no GPU, no network
-python scripts/generate_readme_charts.py --check   # chart data facts + reproducible SVG
-```
+[Indonesian HoASA ABSA](https://github.com/RayhanHaqi/hoasa-slm-benchmark), using small models for structured 10-aspect sentiment output.
