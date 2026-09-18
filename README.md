@@ -34,7 +34,7 @@ Values are read from the committed `results.csv` files ([BF16](benchmarks/202609
 
 ![Dumbbell chart of strict accuracy for the base checkpoint versus the fine-tuned adapter across all ten configurations, split into BF16 LoRA and QLoRA NF4 tracks](assets/strict-accuracy-dumbbell.svg)
 
-Each row is one configuration on the frozen 200-row test split; deltas are adapter minus base in percentage points. The figure is regenerated deterministically from the committed `results.csv` bytes by [`scripts/generate_readme_charts.py`](scripts/generate_readme_charts.py) (`python scripts/generate_readme_charts.py --check`).
+The BF16 LoRA and QLoRA NF4 tracks are separate runs; cross-track comparisons are descriptive, not controlled.
 
 ## Key findings
 
@@ -44,27 +44,6 @@ Each row is one configuration on the frozen 200-row test split; deltas are adapt
 - **Not monotonic in nominal size.** Gains do not order by nominal parameter count: the largest deltas come from 1.2B–3B configurations (+26.5 to +31.0 pp strict), while the smallest include a 0.8B configuration (+2.5 pp) and every 8B–14B configuration (+2.0 to +6.0 pp). No "bigger is better" claim is made.
 - **Resources.** All 10 configurations trained and evaluated on one RTX 5060 Ti; the longest single training phase was 6577 s (Ministral-3-14B). Fine-tuned evaluation peak reserved VRAM was ≤ 9.36 GiB in the BF16 track and ≤ 9.94 GiB across QLoRA acceptance runs. The remaining three QLoRA configurations ran under the documented shared-GPU (RustDesk) policy; the BF16 track and the imported Qwen3-8B evidence had no GPU sharing, so resource numbers are descriptive within each track, not a controlled efficiency ranking.
 - **Single-run frozen holdout.** Every delta is a single-run descriptive difference on a 200-row holdout; there are no confidence intervals or significance tests, and no general-quality claim.
-
-## Strict delta vs evaluation peak VRAM
-
-![Scatter plot of strict accuracy delta against fine-tuned evaluation peak reserved VRAM for ten configurations, with BF16 LoRA and QLoRA NF4 as separate series](assets/strict-delta-vs-vram.svg)
-
-Strict delta (adapter minus base, pp) against the fine-tuned evaluation process peak reserved by the PyTorch allocator (GiB; counters reset after model load). Each point is one configuration, one single run; BF16 LoRA and QLoRA NF4 are separate tracks with different precision, checkpoint-selection policy and provenance (Qwen3-8B† is imported evidence; the remaining three QLoRA configurations ran under a shared-GPU policy). The figure is **descriptive and non-causal** — it is not an efficiency or size ranking.
-
-## Pipeline
-
-```mermaid
-flowchart LR
-    A["gather<br/>gh issue list or frozen JSON"] --> B["prepare<br/>clean + temporal split<br/>1593 / 200 / 200"]
-    B --> C["baseline eval<br/>base checkpoint on test split"]
-    B --> D["train<br/>LoRA or QLoRA NF4<br/>on frozen train split"]
-    D --> E["fine-tuned eval<br/>adapter on the same test split"]
-    C --> F["compare<br/>strict + semantic + resources"]
-    E --> F
-    F --> G["committed evidence<br/>manifest · results.csv · predictions"]
-```
-
-The `specialist` CLI runs each phase in a fresh process; the QLoRA track uses the guarded sequential runner [`scripts/run_qlora_large.py`](scripts/run_qlora_large.py). Commands: [docs/reproduction.md](docs/reproduction.md).
 
 ## Results by track (exact values)
 
@@ -117,6 +96,21 @@ One-time user-approved policy `rustdesk_shared_gpu_v1`: only the exact `/usr/sha
 
 **Metric notes.** *Strict accuracy*: the stripped, lowercased output must exactly equal one class name. *Semantic accuracy*: exactly one class parsed from the raw output by a forgiving word-boundary regex; both/neither counts as invalid and wrong. *FT peak reserved VRAM*: adapter-evaluation process peak reserved by the PyTorch allocator (GiB, 1024³; counters reset after model load) — a process-level measurement, not whole-GPU usage. *FT output speed*: stored generated tokens divided by total `model.generate` elapsed, so it includes prefill and is not pure decode throughput. *Strict/semantic deltas*: fine-tuned minus base.
 
+## Pipeline
+
+```mermaid
+flowchart LR
+    A["gather<br/>gh issue list or frozen JSON"] --> B["prepare<br/>clean + temporal split<br/>1593 / 200 / 200"]
+    B --> C["baseline eval<br/>base checkpoint on test split"]
+    B --> D["train<br/>LoRA or QLoRA NF4<br/>on frozen train split"]
+    D --> E["fine-tuned eval<br/>adapter on the same test split"]
+    C --> F["compare<br/>strict + semantic + resources"]
+    E --> F
+    F --> G["committed evidence<br/>manifest · results.csv · predictions"]
+```
+
+The `specialist` CLI runs each phase in a fresh process; the QLoRA track uses the guarded sequential runner [`scripts/run_qlora_large.py`](scripts/run_qlora_large.py). Commands: [docs/reproduction.md](docs/reproduction.md).
+
 ## Methodology and dataset
 
 **Dataset (frozen).** Source: `microsoft/vscode` issues, classes `bug` and `feature-request`. Split: temporal per-class by `created_at`, seed 42, 80/10/10 → **1593 train / 200 val / 200 test**; the test set is balanced 100 `bug` + 100 `feature-request`. Split SHA-256 pins: train `3d58b700bb165187462986d719edc6b705e612af9aba2bd23ea1e1410f26202b`, val `7423f47f80368404aa0d21e9bb9c19719b624a67519146c8c9d720f42e517348`, test `9fc58e7070c327adaa7b522cf1cd530b90c077dbd54513d00ea31dead5712025`. `comparison.json` records `test_sha256.match = true` for every model, so all 20 evaluations share one test set. Raw and prepared data files are intentionally not committed.
@@ -165,11 +159,11 @@ The ML phases (baseline/train/evaluate) need the pinned `.[ml]` extra and the fr
 
 Per-model metrics, comparisons, prediction CSVs and run info live under `models/` in each track directory (`benchmarks/20260915T112519Z/models/<slug>/`, `benchmarks/qlora-large/20260916T185922Z/models/<slug>/workspace/`).
 
-Charts: [`assets/strict-accuracy-dumbbell.svg`](assets/strict-accuracy-dumbbell.svg) and [`assets/strict-delta-vs-vram.svg`](assets/strict-delta-vs-vram.svg), regenerated from the committed CSVs by [`scripts/generate_readme_charts.py`](scripts/generate_readme_charts.py) (stdlib only; `--check` verifies the committed SVGs are byte-identical to a fresh render).
+Chart: [`assets/strict-accuracy-dumbbell.svg`](assets/strict-accuracy-dumbbell.svg), regenerated from the committed CSVs by [`scripts/generate_readme_charts.py`](scripts/generate_readme_charts.py) (stdlib only; `--check` verifies the committed SVG is byte-identical to a fresh render).
 
 ## Artifact policy (git)
 
-Committed: source, configs, tests, run metadata (`config.yaml`, `dataset_stats.json`, `run_info.json`, `*_metrics.json`, `comparison.json`), prediction CSVs, benchmark `manifest.json` / `report.md` / `results.csv`, and the README SVGs.
+Committed: source, configs, tests, run metadata (`config.yaml`, `dataset_stats.json`, `run_info.json`, `*_metrics.json`, `comparison.json`), prediction CSVs, benchmark `manifest.json` / `report.md` / `results.csv`, and the README SVG.
 
 Not committed: dataset copies, model weights and adapters, trainer checkpoints, caches, and process logs/transcripts.
 
@@ -189,7 +183,7 @@ scripts/run_qlora_large.py   guarded sequential runner for the 4-model QLoRA tra
 scripts/generate_readme_charts.py  README SVG generator (stdlib only, reads committed CSVs)
 benchmarks/                  committed completed, partial and failed run evidence by track
 runs/                        reference run directory (metadata/metrics/predictions committed)
-assets/                      README charts (regenerated from committed results.csv)
+assets/                      README chart (regenerated from committed results.csv)
 tests/                       cheap regression tests (no GPU, no network)
 docs/                        case analysis and reproduction/operations notes
 ```
@@ -198,5 +192,5 @@ docs/                        case analysis and reproduction/operations notes
 
 ```bash
 python -m unittest discover -s tests -v            # no GPU, no network
-python scripts/generate_readme_charts.py --check   # chart data facts + reproducible SVGs
+python scripts/generate_readme_charts.py --check   # chart data facts + reproducible SVG
 ```
